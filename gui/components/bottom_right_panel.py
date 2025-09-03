@@ -1,7 +1,7 @@
-# bottom_right_panel.py
+# gui/components/bottom_right_panel.py
 """
 Componente del panel inferior derecho del bot.
-Maneja información básica de estado y estadísticas simples.
+Muestra un log de eventos del sistema.
 """
 
 import tkinter as tk
@@ -10,7 +10,7 @@ from datetime import datetime
 
 
 class BottomRightPanel:
-    """Maneja el contenido y funcionalidad del panel de estado."""
+    """Maneja el contenido y funcionalidad del panel de logs."""
 
     def __init__(self, parent_frame):
         """
@@ -20,12 +20,8 @@ class BottomRightPanel:
             parent_frame: Frame padre donde se montará este componente
         """
         self.parent_frame = parent_frame
-        self.stats = {
-            'start_time': datetime.now(),
-            'status': 'Iniciado'
-        }
+        self.start_time = datetime.now()
         self._setup_widgets()
-        self._start_update_timer()
 
     def _setup_widgets(self):
         """Configura los widgets del panel."""
@@ -36,94 +32,60 @@ class BottomRightPanel:
         # Título del panel
         self.title_label = ttk.Label(
             self.parent_frame,
-            text="📊 ESTADO",
+            text="📊 REGISTRO DE ACTIVIDAD",
             font=("Arial", 10, "bold"),
             anchor="center"
         )
         self.title_label.grid(row=0, column=0, sticky="ew", pady=(0, 10))
 
-        # Frame principal para el contenido
-        self.content_frame = ttk.Frame(self.parent_frame)
-        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-        self.content_frame.columnconfigure(1, weight=1)
+        # Frame principal para el log
+        self.log_frame = ttk.Frame(self.parent_frame)
+        self.log_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.log_frame.columnconfigure(0, weight=1)
+        self.log_frame.rowconfigure(0, weight=1)
 
-        # Estado actual
-        ttk.Label(self.content_frame, text="Estado:").grid(row=0, column=0, sticky="w", pady=5)
-        self.status_label = ttk.Label(
-            self.content_frame,
-            text="✅ Activo",
-            foreground="green"
+        # Crear área de log
+        self.log_text = tk.Text(
+            self.log_frame,
+            height=10,
+            width=30,
+            font=("Consolas", 9),
+            wrap=tk.WORD,
+            state=tk.DISABLED
         )
-        self.status_label.grid(row=0, column=1, sticky="w", padx=(10, 0), pady=5)
+        self.log_text.grid(row=0, column=0, sticky="nsew")
 
-        # Tiempo activo
-        ttk.Label(self.content_frame, text="Tiempo:").grid(row=1, column=0, sticky="w", pady=5)
-        self.uptime_label = ttk.Label(self.content_frame, text="00:00:00")
-        self.uptime_label.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=5)
-
-        # Botones básicos
-        self.buttons_frame = ttk.Frame(self.content_frame)
-        self.buttons_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(20, 0))
-        self.buttons_frame.columnconfigure(0, weight=1)
-        self.buttons_frame.columnconfigure(1, weight=1)
-
-        self.start_btn = ttk.Button(
-            self.buttons_frame,
-            text="▶ Iniciar",
-            command=self._on_start
+        # Agregar scrollbar
+        scrollbar = ttk.Scrollbar(
+            self.log_frame,
+            orient="vertical",
+            command=self.log_text.yview
         )
-        self.start_btn.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.log_text.configure(yscrollcommand=scrollbar.set)
 
-        self.stop_btn = ttk.Button(
-            self.buttons_frame,
-            text="⏸ Pausar",
-            command=self._on_stop
-        )
-        self.stop_btn.grid(row=0, column=1, sticky="ew")
+        # Log inicial
+        self.add_log_entry("Sistema iniciado")
+        self.add_log_entry(f"Fecha y hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    def _start_update_timer(self):
-        """Inicia el timer para actualizar el tiempo activo."""
-        self._update_uptime()
-        self.parent_frame.after(1000, self._start_update_timer)
-
-    def _update_uptime(self):
-        """Actualiza el tiempo de funcionamiento mostrado."""
-        uptime = datetime.now() - self.stats['start_time']
-        hours, remainder = divmod(int(uptime.total_seconds()), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        uptime_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        self.uptime_label.config(text=uptime_str)
-
-    def _on_start(self):
-        """Callback para el botón de iniciar."""
-        self.status_label.config(text="🔄 Ejecutando", foreground="orange")
-        self.stats['status'] = 'Ejecutando'
-
-    def _on_stop(self):
-        """Callback para el botón de pausar."""
-        self.status_label.config(text="⏸ Pausado", foreground="red")
-        self.stats['status'] = 'Pausado'
-
-    def update_status(self, status, color="black"):
+    def add_log_entry(self, message):
         """
-        Actualiza el estado del sistema.
+        Agrega un mensaje al log.
 
         Args:
-            status (str): Nuevo estado
-            color (str): Color del texto
+            message (str): Mensaje a agregar al log
         """
-        self.status_label.config(text=status, foreground=color)
-        self.stats['status'] = status
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {message}\n"
 
-    def get_stats(self):
-        """
-        Retorna las estadísticas actuales.
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.insert(tk.END, log_entry)
+        self.log_text.see(tk.END)
+        self.log_text.configure(state=tk.DISABLED)
 
-        Returns:
-            dict: Estadísticas básicas
-        """
-        uptime = datetime.now() - self.stats['start_time']
-        return {
-            'uptime_seconds': int(uptime.total_seconds()),
-            'status': self.stats['status']
-        }
+    def clear_log(self):
+        """Limpia el contenido del log."""
+        self.log_text.configure(state=tk.NORMAL)
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.configure(state=tk.DISABLED)
+        self.add_log_entry("Log limpiado")
