@@ -23,7 +23,7 @@ class MainWindow:
 
     def _setup_window(self):
         """Configura las propiedades básicas de la ventana."""
-        self.root.title("Bot Modular")
+        self.root.title("Bot de Búsqueda de Correos")
         self.root.geometry("1200x800")
         self.root.minsize(800, 600)
 
@@ -47,7 +47,7 @@ class MainWindow:
         # Frame superior (ocupa todo el ancho)
         self.top_frame = ttk.LabelFrame(
             self.main_frame,
-            text="Panel Principal",
+            text="Perfiles de Búsqueda",
             padding="10"
         )
         self.top_frame.grid(row=0, column=0, columnspan=2, sticky="nsew", pady=(0, 5))
@@ -74,9 +74,18 @@ class MainWindow:
 
     def _load_components(self):
         """Carga los componentes en cada panel."""
-        self.top_panel = TopPanel(self.top_frame)
-        self.bottom_left_panel = BottomLeftPanel(self.bottom_left_frame)
+        # Primero inicializar el panel de logs para poder pasarlo como referencia
         self.bottom_right_panel = BottomRightPanel(self.bottom_right_frame)
+
+        # Luego inicializar el panel izquierdo
+        self.bottom_left_panel = BottomLeftPanel(self.bottom_left_frame)
+
+        # Finalmente, inicializar el panel superior con la referencia al panel de logs
+        self.top_panel = TopPanel(self.top_frame, self.bottom_right_panel)
+
+        # Registrar la inicialización en el log
+        self.bottom_right_panel.add_log_entry("Aplicación iniciada correctamente")
+        self.bottom_right_panel.add_log_entry("Sistema de perfiles de búsqueda cargado")
 
     def run(self):
         """Inicia el loop principal de la aplicación."""

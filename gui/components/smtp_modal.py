@@ -40,7 +40,7 @@ class SMTPModal:
 
         Args:
             parent: Widget padre
-            bottom_panel: Referencia al panel inferior para logs
+            bottom_panel: Referencia al panel para registrar logs
         """
         self.parent = parent
         self.bottom_panel = bottom_panel

@@ -1,7 +1,7 @@
 # gui/components/bottom_right_panel.py
 """
 Componente del panel inferior derecho del bot.
-Muestra un log de eventos del sistema.
+Centraliza todos los registros de eventos del sistema.
 """
 
 import tkinter as tk
@@ -10,7 +10,7 @@ from datetime import datetime
 
 
 class BottomRightPanel:
-    """Maneja el contenido y funcionalidad del panel de logs."""
+    """Maneja el contenido y funcionalidad del panel de logs centralizado."""
 
     def __init__(self, parent_frame):
         """
@@ -64,13 +64,24 @@ class BottomRightPanel:
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
+        # Agregar botón para limpiar log
+        button_frame = ttk.Frame(self.log_frame)
+        button_frame.grid(row=1, column=0, sticky="e", pady=(5, 0))
+
+        clear_button = ttk.Button(
+            button_frame,
+            text="Limpiar Log",
+            command=self.clear_log
+        )
+        clear_button.pack(side="right")
+
         # Log inicial
         self.add_log_entry("Sistema iniciado")
         self.add_log_entry(f"Fecha y hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     def add_log_entry(self, message):
         """
-        Agrega un mensaje al log.
+        Agrega un mensaje al log centralizado.
 
         Args:
             message (str): Mensaje a agregar al log
