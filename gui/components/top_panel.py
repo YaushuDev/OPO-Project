@@ -46,7 +46,7 @@ class TopPanel:
         # Título del panel
         self.title_label = ttk.Label(
             self.header_frame,
-            text="🔍 PERFILES DE BÚSQUEDA",
+            text="🔎 PERFILES DE BÚSQUEDA",
             font=("Arial", 12, "bold")
         )
         self.title_label.grid(row=0, column=0, sticky="w", pady=5)
@@ -56,12 +56,19 @@ class TopPanel:
         self.button_frame.grid(row=0, column=1, sticky="e")
 
         # Botones de acción
+        self.search_all_btn = ttk.Button(
+            self.button_frame,
+            text="Buscar Todos",
+            command=self._run_global_search
+        )
+        self.search_all_btn.grid(row=0, column=0, padx=(0, 5))
+
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=0, padx=(0, 5))
+        self.new_btn.grid(row=0, column=1, padx=(0, 5))
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -91,7 +98,7 @@ class TopPanel:
         self.profiles_tree.column("last_search", width=150, minwidth=100, anchor="center")
         self.profiles_tree.column("actions", width=150, minwidth=100, anchor="center")
 
-        # Colocar el Treeview
+        # Colocar el Treeview (siempre visible)
         self.profiles_tree.grid(row=0, column=0, sticky="nsew")
 
         # Scrollbar vertical
@@ -126,27 +133,25 @@ class TopPanel:
         # Obtener perfiles del gestor
         profiles = self.profile_manager.get_all_profiles()
 
+        # El grid siempre está visible, solo cambia el mensaje de vacío
         if not profiles:
             # Mostrar mensaje cuando no hay perfiles
             self.empty_label.grid(row=0, column=0, sticky="nsew")
-            self.profiles_tree.grid_remove()
-            return
         else:
             self.empty_label.grid_remove()
-            self.profiles_tree.grid()
 
         # Añadir perfiles al grid
         for profile in profiles:
             # Formatear la fecha de última búsqueda
             last_search = "Nunca" if not profile.last_search else profile.last_search.strftime("%d/%m/%Y %H:%M")
 
-            # Añadir fila a la tabla
+            # Añadir fila a la tabla (ahora solo con la opción de Eliminar)
             item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
                 profile.name,
                 profile.search_criteria,
                 profile.found_emails,
                 last_search,
-                "🔍 Buscar | ✏️ Editar | 🗑️ Eliminar"
+                "🗑️ Eliminar"  # Solo queda la opción de eliminar
             ))
 
             # Guardar el profile_id como tag para identificarlo
@@ -160,7 +165,7 @@ class TopPanel:
 
     def _on_tree_click(self, event):
         """
-        Maneja los clics en el árbol para las acciones (botones).
+        Maneja los clics en el árbol para la acción de eliminar.
 
         Args:
             event: Evento de clic
@@ -183,15 +188,8 @@ class TopPanel:
                 if not profile:
                     return
 
-                # Determinar qué acción según la posición horizontal
-                x_rel = event.x - self.profiles_tree.bbox(item, column)[0]
-
-                if x_rel < 60:  # Buscar
-                    self._run_search(profile)
-                elif x_rel < 120:  # Editar
-                    self._edit_profile(profile)
-                else:  # Eliminar
-                    self._delete_profile(profile)
+                # Ahora solo existe la acción eliminar
+                self._delete_profile(profile)
 
     def _on_tree_double_click(self, event):
         """
@@ -282,11 +280,41 @@ class TopPanel:
         # Actualizar el grid
         self._load_profiles()
 
-        # Mostrar mensaje con resultados
+        # Retornar resultados para uso en búsqueda global
+        return found
+
+    def _run_global_search(self):
+        """Ejecuta la búsqueda para todos los perfiles."""
+        profiles = self.profile_manager.get_all_profiles()
+
+        if not profiles:
+            messagebox.showinfo("Información", "No hay perfiles de búsqueda para ejecutar.")
+            return
+
+        if self.bottom_right_panel:
+            self.bottom_right_panel.add_log_entry("Iniciando búsqueda global con todos los perfiles")
+
+        total_found = 0
+        profiles_searched = 0
+
+        for profile in profiles:
+            # Usar el método de búsqueda individual
+            found = self._run_search(profile)
+            total_found += found
+            profiles_searched += 1
+
+        # Actualizar la interfaz después de todas las búsquedas
+        self._load_profiles()
+
+        # Mostrar resultado final
         messagebox.showinfo(
-            "Búsqueda completada",
-            f"Se encontraron {found} correos que coinciden con '{profile.search_criteria}'."
+            "Búsqueda global completada",
+            f"Se han procesado {profiles_searched} perfiles.\n"
+            f"Total de correos encontrados: {total_found}."
         )
+
+        if self.bottom_right_panel:
+            self.bottom_right_panel.add_log_entry(f"Búsqueda global completada. Total: {total_found} correos")
 
     def get_data(self):
         """
