@@ -1,4 +1,4 @@
-# top_panel.py
+# gui/components/top_panel.py
 """
 Componente del panel superior del bot.
 Muestra perfiles de búsqueda de correos y permite gestionarlos.
@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from gui.models.profile_manager import ProfileManager
 from gui.components.profile_modal import ProfileModal
+from services.report_service import ReportService
+from services.email_service import EmailService
 
 
 class TopPanel:
@@ -27,6 +29,8 @@ class TopPanel:
         self.parent_frame = parent_frame
         self.bottom_right_panel = bottom_right_panel
         self.profile_manager = ProfileManager()
+        self.report_service = ReportService()
+        self.email_service = EmailService()
         self._setup_widgets()
         self._load_profiles()
 
@@ -56,19 +60,26 @@ class TopPanel:
         self.button_frame.grid(row=0, column=1, sticky="e")
 
         # Botones de acción
+        self.generate_report_btn = ttk.Button(
+            self.button_frame,
+            text="Generar Reporte",
+            command=self._generate_report
+        )
+        self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
+
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
             command=self._run_global_search
         )
-        self.search_all_btn.grid(row=0, column=0, padx=(0, 5))
+        self.search_all_btn.grid(row=0, column=1, padx=(0, 5))
 
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=1, padx=(0, 5))
+        self.new_btn.grid(row=0, column=2, padx=(0, 5))
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -98,7 +109,7 @@ class TopPanel:
         self.profiles_tree.column("last_search", width=150, minwidth=100, anchor="center")
         self.profiles_tree.column("actions", width=150, minwidth=100, anchor="center")
 
-        # Colocar el Treeview (siempre visible)
+        # Colocar el Treeview
         self.profiles_tree.grid(row=0, column=0, sticky="nsew")
 
         # Scrollbar vertical
@@ -113,6 +124,7 @@ class TopPanel:
 
         # Enlazar eventos
         self.profiles_tree.bind("<Double-1>", self._on_tree_double_click)
+        self.profiles_tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
         # Mensaje cuando no hay perfiles
         self.empty_label = ttk.Label(
@@ -133,9 +145,8 @@ class TopPanel:
         # Obtener perfiles del gestor
         profiles = self.profile_manager.get_all_profiles()
 
-        # El grid siempre está visible, solo cambia el mensaje de vacío
+        # Mostrar/ocultar mensaje de vacío
         if not profiles:
-            # Mostrar mensaje cuando no hay perfiles
             self.empty_label.grid(row=0, column=0, sticky="nsew")
         else:
             self.empty_label.grid_remove()
@@ -145,35 +156,26 @@ class TopPanel:
             # Formatear la fecha de última búsqueda
             last_search = "Nunca" if not profile.last_search else profile.last_search.strftime("%d/%m/%Y %H:%M")
 
-            # Añadir fila a la tabla (ahora solo con la opción de Eliminar)
+            # Añadir fila a la tabla
             item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
                 profile.name,
                 profile.search_criteria,
                 profile.found_emails,
                 last_search,
-                "🗑️ Eliminar"  # Solo queda la opción de eliminar
+                "🗑️ Eliminar"
             ))
 
-            # Guardar el profile_id como tag para identificarlo
+            # Guardar el profile_id como tag
             self.profiles_tree.item(item_id, tags=(profile.profile_id,))
-
-        # Configurar evento de clic para los botones de acción
-        self.profiles_tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(f"Perfiles cargados: {len(profiles)}")
 
     def _on_tree_click(self, event):
-        """
-        Maneja los clics en el árbol para la acción de eliminar.
-
-        Args:
-            event: Evento de clic
-        """
+        """Maneja los clics en el árbol para la acción de eliminar."""
         region = self.profiles_tree.identify_region(event.x, event.y)
 
         if region == "cell":
-            # Identificar columna
             column = self.profiles_tree.identify_column(event.x)
             item = self.profiles_tree.identify_row(event.y)
 
@@ -181,28 +183,19 @@ class TopPanel:
                 return
 
             # Si es la columna de acciones (5)
-            if column == "#5":  # Acciones
+            if column == "#5":
                 profile_id = self.profiles_tree.item(item, "tags")[0]
                 profile = self.profile_manager.get_profile_by_id(profile_id)
 
-                if not profile:
-                    return
-
-                # Ahora solo existe la acción eliminar
-                self._delete_profile(profile)
+                if profile:
+                    self._delete_profile(profile)
 
     def _on_tree_double_click(self, event):
-        """
-        Maneja doble clic en un perfil para editarlo.
-
-        Args:
-            event: Evento de doble clic
-        """
+        """Maneja doble clic en un perfil para editarlo."""
         item = self.profiles_tree.identify_row(event.y)
         if not item:
             return
 
-        # Obtener perfil seleccionado
         profile_id = self.profiles_tree.item(item, "tags")[0]
         profile = self.profile_manager.get_profile_by_id(profile_id)
 
@@ -217,12 +210,7 @@ class TopPanel:
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
     def _edit_profile(self, profile):
-        """
-        Abre el modal para editar un perfil.
-
-        Args:
-            profile: Perfil a editar
-        """
+        """Abre el modal para editar un perfil."""
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(f"Editando perfil: {profile.name}")
 
@@ -234,13 +222,7 @@ class TopPanel:
         )
 
     def _delete_profile(self, profile):
-        """
-        Elimina un perfil tras confirmación.
-
-        Args:
-            profile: Perfil a eliminar
-        """
-        # Mostrar confirmación
+        """Elimina un perfil tras confirmación."""
         confirm = messagebox.askyesno(
             "Confirmar eliminación",
             f"¿Estás seguro de eliminar el perfil '{profile.name}'?",
@@ -248,7 +230,6 @@ class TopPanel:
         )
 
         if confirm:
-            # Eliminar perfil
             if self.profile_manager.delete_profile(profile.profile_id):
                 if self.bottom_right_panel:
                     self.bottom_right_panel.add_log_entry(f"Perfil eliminado: {profile.name}")
@@ -257,17 +238,11 @@ class TopPanel:
                 messagebox.showerror("Error", "No se pudo eliminar el perfil")
 
     def _run_search(self, profile):
-        """
-        Ejecuta la búsqueda con el perfil seleccionado.
-
-        Args:
-            profile: Perfil para ejecutar búsqueda
-        """
+        """Ejecuta la búsqueda con el perfil seleccionado."""
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(f"Ejecutando búsqueda con perfil: {profile.name}")
 
-        # Simulación de búsqueda para el ejemplo
-        # Aquí se implementaría la lógica real de búsqueda de correos
+        # Simulación de búsqueda
         import random
         found = random.randint(1, 20)
 
@@ -279,8 +254,6 @@ class TopPanel:
 
         # Actualizar el grid
         self._load_profiles()
-
-        # Retornar resultados para uso en búsqueda global
         return found
 
     def _run_global_search(self):
@@ -298,15 +271,12 @@ class TopPanel:
         profiles_searched = 0
 
         for profile in profiles:
-            # Usar el método de búsqueda individual
             found = self._run_search(profile)
             total_found += found
             profiles_searched += 1
 
-        # Actualizar la interfaz después de todas las búsquedas
         self._load_profiles()
 
-        # Mostrar resultado final
         messagebox.showinfo(
             "Búsqueda global completada",
             f"Se han procesado {profiles_searched} perfiles.\n"
@@ -316,13 +286,45 @@ class TopPanel:
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(f"Búsqueda global completada. Total: {total_found} correos")
 
-    def get_data(self):
-        """
-        Retorna los datos actuales del panel.
+    def _generate_report(self):
+        """Genera y envía reporte Excel con información de perfiles."""
+        profiles = self.profile_manager.get_all_profiles()
 
-        Returns:
-            dict: Información del panel
-        """
+        if not profiles:
+            messagebox.showinfo("Información", "No hay perfiles para generar reporte.")
+            return
+
+        if self.bottom_right_panel:
+            self.bottom_right_panel.add_log_entry("Iniciando generación de reporte")
+
+        try:
+            # Generar archivo Excel
+            report_path = self.report_service.generate_profiles_report(profiles)
+
+            if self.bottom_right_panel:
+                self.bottom_right_panel.add_log_entry(f"Reporte generado: {report_path}")
+
+            # Enviar por correo
+            success = self.email_service.send_report(report_path)
+
+            if success:
+                if self.bottom_right_panel:
+                    self.bottom_right_panel.add_log_entry("✅ Reporte enviado por correo exitosamente")
+                messagebox.showinfo("Éxito", "Reporte generado y enviado por correo correctamente.")
+            else:
+                if self.bottom_right_panel:
+                    self.bottom_right_panel.add_log_entry("❌ Error al enviar reporte por correo")
+                messagebox.showwarning("Advertencia",
+                                       "Reporte generado pero no se pudo enviar por correo.\nVerifica la configuración de email.")
+
+        except Exception as e:
+            error_msg = f"Error al generar reporte: {e}"
+            if self.bottom_right_panel:
+                self.bottom_right_panel.add_log_entry(error_msg)
+            messagebox.showerror("Error", error_msg)
+
+    def get_data(self):
+        """Retorna los datos actuales del panel."""
         return {
             "panel_type": "top_panel",
             "profiles_count": len(self.profile_manager.get_all_profiles())

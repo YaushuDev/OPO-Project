@@ -1,7 +1,7 @@
-# main_window.py
+# gui/main_window.py
 """
-Ventana principal del bot que configura el layout con 3 paneles:
-Panel superior grande y dos paneles inferiores.
+Ventana principal del bot que configura el layout con 3 paneles.
+Panel superior grande y dos paneles inferiores para gestión completa.
 """
 
 import tkinter as tk
@@ -23,7 +23,7 @@ class MainWindow:
 
     def _setup_window(self):
         """Configura las propiedades básicas de la ventana."""
-        self.root.title("Bot de Búsqueda de Correos")
+        self.root.title("Bot de Búsqueda de Correos - v2.0")
         self.root.geometry("1200x800")
         self.root.minsize(800, 600)
 
@@ -77,15 +77,21 @@ class MainWindow:
         # Primero inicializar el panel de logs para poder pasarlo como referencia
         self.bottom_right_panel = BottomRightPanel(self.bottom_right_frame)
 
-        # Luego inicializar el panel izquierdo
-        self.bottom_left_panel = BottomLeftPanel(self.bottom_left_frame)
+        # Luego inicializar el panel izquierdo con referencia al panel de logs
+        self.bottom_left_panel = BottomLeftPanel(self.bottom_left_frame, self.bottom_right_panel)
 
         # Finalmente, inicializar el panel superior con la referencia al panel de logs
         self.top_panel = TopPanel(self.top_frame, self.bottom_right_panel)
 
         # Registrar la inicialización en el log
         self.bottom_right_panel.add_log_entry("Aplicación iniciada correctamente")
-        self.bottom_right_panel.add_log_entry("Sistema de perfiles de búsqueda cargado")
+        self.bottom_right_panel.add_log_entry("Sistema de perfiles y reportes cargado")
+        self.bottom_right_panel.add_log_entry("Funcionalidades disponibles:")
+        self.bottom_right_panel.add_log_entry("  • Gestión de perfiles de búsqueda")
+        self.bottom_right_panel.add_log_entry("  • Configuración SMTP")
+        self.bottom_right_panel.add_log_entry("  • Configuración de destinatarios")
+        self.bottom_right_panel.add_log_entry("  • Generación de reportes Excel")
+        self.bottom_right_panel.add_log_entry("  • Envío automático por correo")
 
     def run(self):
         """Inicia el loop principal de la aplicación."""
@@ -102,8 +108,8 @@ class MainWindow:
             Component: Instancia del componente o None si no existe
         """
         components = {
-            'top': self.top_panel,
-            'bottom_left': self.bottom_left_panel,
-            'bottom_right': self.bottom_right_panel
+            'top': getattr(self, 'top_panel', None),
+            'bottom_left': getattr(self, 'bottom_left_panel', None),
+            'bottom_right': getattr(self, 'bottom_right_panel', None)
         }
         return components.get(component_name, None)
