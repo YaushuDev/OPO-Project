@@ -1,7 +1,7 @@
 # services/report_service.py
 """
-Servicio para generar reportes Excel de perfiles de búsqueda.
-Crea archivos Excel con información detallada de los perfiles.
+Servicio para generar reportes Excel optimizados de perfiles de búsqueda.
+Crea archivos Excel limpios con información esencial de los perfiles.
 """
 
 import os
@@ -17,7 +17,7 @@ except ImportError:
 
 
 class ReportService:
-    """Servicio para generar reportes en formato Excel."""
+    """Servicio para generar reportes optimizados en formato Excel."""
 
     def __init__(self):
         """Inicializa el servicio de reportes."""
@@ -26,7 +26,7 @@ class ReportService:
 
     def generate_profiles_report(self, profiles):
         """
-        Genera un reporte Excel con información de perfiles.
+        Genera un reporte Excel optimizado con información esencial de perfiles.
 
         Args:
             profiles (list): Lista de perfiles de búsqueda
@@ -58,14 +58,11 @@ class ReportService:
         border_style = Side(border_style="thin", color="000000")
         border = Border(top=border_style, bottom=border_style, left=border_style, right=border_style)
 
-        # Configurar encabezados
+        # Configurar encabezados optimizados (solo campos esenciales)
         headers = [
-            "ID del Perfil",
             "Nombre del Perfil",
-            "Criterio de Búsqueda",
             "Correos Encontrados",
-            "Última Búsqueda",
-            "Estado"
+            "Última Búsqueda"
         ]
 
         # Escribir encabezados
@@ -77,31 +74,21 @@ class ReportService:
             cell.alignment = header_alignment
             cell.border = border
 
-        # Escribir datos de perfiles
+        # Escribir datos de perfiles (solo información esencial)
         for row_num, profile in enumerate(profiles, 2):
-            # ID del Perfil
-            cell = worksheet.cell(row=row_num, column=1)
-            cell.value = profile.profile_id
-            cell.border = border
-
             # Nombre del Perfil
-            cell = worksheet.cell(row=row_num, column=2)
+            cell = worksheet.cell(row=row_num, column=1)
             cell.value = profile.name
             cell.border = border
 
-            # Criterio de Búsqueda
-            cell = worksheet.cell(row=row_num, column=3)
-            cell.value = profile.search_criteria
-            cell.border = border
-
             # Correos Encontrados
-            cell = worksheet.cell(row=row_num, column=4)
+            cell = worksheet.cell(row=row_num, column=2)
             cell.value = profile.found_emails
             cell.alignment = Alignment(horizontal="center")
             cell.border = border
 
             # Última Búsqueda
-            cell = worksheet.cell(row=row_num, column=5)
+            cell = worksheet.cell(row=row_num, column=3)
             if profile.last_search:
                 cell.value = profile.last_search.strftime("%d/%m/%Y %H:%M:%S")
             else:
@@ -109,25 +96,11 @@ class ReportService:
             cell.alignment = Alignment(horizontal="center")
             cell.border = border
 
-            # Estado
-            cell = worksheet.cell(row=row_num, column=6)
-            if profile.last_search:
-                cell.value = "Activo"
-                cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-            else:
-                cell.value = "Sin usar"
-                cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-            cell.alignment = Alignment(horizontal="center")
-            cell.border = border
-
-        # Ajustar ancho de columnas
+        # Ajustar ancho de columnas optimizado
         column_widths = {
-            1: 30,  # ID del Perfil
-            2: 25,  # Nombre del Perfil
-            3: 35,  # Criterio de Búsqueda
-            4: 18,  # Correos Encontrados
-            5: 20,  # Última Búsqueda
-            6: 15  # Estado
+            1: 35,  # Nombre del Perfil
+            2: 20,  # Correos Encontrados
+            3: 25   # Última Búsqueda
         }
 
         for col_num, width in column_widths.items():
@@ -144,48 +117,86 @@ class ReportService:
 
     def _add_summary_sheet(self, worksheet, profiles):
         """
-        Agrega hoja de resumen al reporte.
+        Agrega hoja de resumen optimizada al reporte.
 
         Args:
             worksheet: Hoja de trabajo de Excel
             profiles (list): Lista de perfiles
         """
-        # Título
-        worksheet.cell(row=1, column=1).value = "RESUMEN DEL REPORTE"
-        worksheet.cell(row=1, column=1).font = Font(bold=True, size=16)
+        # Título principal
+        worksheet.cell(row=1, column=1).value = "RESUMEN EJECUTIVO"
+        worksheet.cell(row=1, column=1).font = Font(bold=True, size=16, color="366092")
+        worksheet.merge_cells('A1:B1')
 
         # Información general
         worksheet.cell(row=3, column=1).value = "Fecha de generación:"
+        worksheet.cell(row=3, column=1).font = Font(bold=True)
         worksheet.cell(row=3, column=2).value = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
         worksheet.cell(row=4, column=1).value = "Total de perfiles:"
+        worksheet.cell(row=4, column=1).font = Font(bold=True)
         worksheet.cell(row=4, column=2).value = len(profiles)
 
-        # Estadísticas
+        # Estadísticas principales
         active_profiles = len([p for p in profiles if p.last_search])
         inactive_profiles = len(profiles) - active_profiles
         total_emails_found = sum(p.found_emails for p in profiles)
+        total_criteria = sum(len(p.search_criteria) for p in profiles)
 
-        worksheet.cell(row=6, column=1).value = "ESTADÍSTICAS"
-        worksheet.cell(row=6, column=1).font = Font(bold=True, size=14)
+        worksheet.cell(row=6, column=1).value = "MÉTRICAS PRINCIPALES"
+        worksheet.cell(row=6, column=1).font = Font(bold=True, size=14, color="366092")
 
         worksheet.cell(row=7, column=1).value = "Perfiles activos:"
+        worksheet.cell(row=7, column=1).font = Font(bold=True)
         worksheet.cell(row=7, column=2).value = active_profiles
 
         worksheet.cell(row=8, column=1).value = "Perfiles sin usar:"
+        worksheet.cell(row=8, column=1).font = Font(bold=True)
         worksheet.cell(row=8, column=2).value = inactive_profiles
 
         worksheet.cell(row=9, column=1).value = "Total correos encontrados:"
+        worksheet.cell(row=9, column=1).font = Font(bold=True)
         worksheet.cell(row=9, column=2).value = total_emails_found
 
+        worksheet.cell(row=10, column=1).value = "Total criterios configurados:"
+        worksheet.cell(row=10, column=1).font = Font(bold=True)
+        worksheet.cell(row=10, column=2).value = total_criteria
+
+        # Métricas adicionales
         if active_profiles > 0:
             avg_emails = total_emails_found / active_profiles
-            worksheet.cell(row=10, column=1).value = "Promedio correos por perfil activo:"
-            worksheet.cell(row=10, column=2).value = round(avg_emails, 2)
+            worksheet.cell(row=11, column=1).value = "Promedio correos por perfil activo:"
+            worksheet.cell(row=11, column=1).font = Font(bold=True)
+            worksheet.cell(row=11, column=2).value = round(avg_emails, 2)
+
+        # Top 3 perfiles más productivos
+        if profiles:
+            worksheet.cell(row=13, column=1).value = "TOP 3 PERFILES MÁS PRODUCTIVOS"
+            worksheet.cell(row=13, column=1).font = Font(bold=True, size=12, color="366092")
+
+            # Ordenar perfiles por correos encontrados
+            sorted_profiles = sorted(profiles, key=lambda p: p.found_emails, reverse=True)[:3]
+
+            for i, profile in enumerate(sorted_profiles, 1):
+                row = 13 + i
+                worksheet.cell(row=row, column=1).value = f"{i}. {profile.name}"
+                worksheet.cell(row=row, column=2).value = f"{profile.found_emails} correos"
 
         # Ajustar ancho de columnas
-        worksheet.column_dimensions['A'].width = 30
-        worksheet.column_dimensions['B'].width = 20
+        worksheet.column_dimensions['A'].width = 35
+        worksheet.column_dimensions['B'].width = 25
+
+        # Agregar bordes a las celdas principales
+        for row in range(1, 17):
+            for col in range(1, 3):
+                cell = worksheet.cell(row=row, column=col)
+                if cell.value:
+                    cell.border = Border(
+                        left=Side(border_style="thin"),
+                        right=Side(border_style="thin"),
+                        top=Side(border_style="thin"),
+                        bottom=Side(border_style="thin")
+                    )
 
     def get_reports_directory(self):
         """
