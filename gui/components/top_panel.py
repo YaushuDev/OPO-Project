@@ -1,7 +1,7 @@
 # gui/components/top_panel.py
 """
 Componente del panel superior del bot.
-Muestra perfiles de búsqueda de correos y permite gestionarlos.
+Muestra perfiles de búsqueda de correos con múltiples criterios y permite gestionarlos.
 """
 
 import tkinter as tk
@@ -19,7 +19,7 @@ from services.search_service import SearchService
 
 
 class TopPanel:
-    """Maneja el contenido y funcionalidad del panel superior con perfiles de búsqueda."""
+    """Maneja el contenido y funcionalidad del panel superior con perfiles de búsqueda múltiple."""
 
     def __init__(self, parent_frame, bottom_right_panel=None):
         """
@@ -63,7 +63,7 @@ class TopPanel:
         # Título del panel
         self.title_label = ttk.Label(
             self.header_frame,
-            text="📁 PERFILES DE BÚSQUEDA",
+            text="🔍 PERFILES DE BÚSQUEDA",
             font=("Arial", 12, "bold")
         )
         self.title_label.grid(row=0, column=0, sticky="w", pady=5)
@@ -116,19 +116,19 @@ class TopPanel:
             selectmode="browse"
         )
 
-        # Definir columnas
+        # Definir columnas con mejor distribución para múltiples criterios
         self.profiles_tree.heading("name", text="Nombre del Perfil")
-        self.profiles_tree.heading("criteria", text="Criterio de Búsqueda")
+        self.profiles_tree.heading("criteria", text="Criterios de Búsqueda")
         self.profiles_tree.heading("found", text="Correos Encontrados")
         self.profiles_tree.heading("last_search", text="Última Búsqueda")
         self.profiles_tree.heading("actions", text="Acciones")
 
-        # Configurar ancho de columnas
-        self.profiles_tree.column("name", width=150, minwidth=100)
-        self.profiles_tree.column("criteria", width=250, minwidth=150)
-        self.profiles_tree.column("found", width=150, minwidth=100, anchor="center")
-        self.profiles_tree.column("last_search", width=150, minwidth=100, anchor="center")
-        self.profiles_tree.column("actions", width=150, minwidth=100, anchor="center")
+        # Configurar ancho de columnas (ajustado para criterios múltiples)
+        self.profiles_tree.column("name", width=140, minwidth=100)
+        self.profiles_tree.column("criteria", width=280, minwidth=200)  # Más ancho para múltiples criterios
+        self.profiles_tree.column("found", width=130, minwidth=100, anchor="center")
+        self.profiles_tree.column("last_search", width=140, minwidth=120, anchor="center")
+        self.profiles_tree.column("actions", width=100, minwidth=80, anchor="center")
 
         # Colocar el Treeview
         self.profiles_tree.grid(row=0, column=0, sticky="nsew")
@@ -150,7 +150,8 @@ class TopPanel:
         # Mensaje cuando no hay perfiles
         self.empty_label = ttk.Label(
             self.grid_frame,
-            text="No hay perfiles de búsqueda. Crea uno nuevo con el botón 'Nuevo Perfil'.",
+            text="No hay perfiles de búsqueda. Crea uno nuevo con el botón 'Nuevo Perfil'.\n"
+                 "Ahora puedes configurar hasta 3 criterios diferentes por perfil.",
             font=("Arial", 11),
             foreground="gray",
             anchor="center",
@@ -158,7 +159,7 @@ class TopPanel:
         )
 
     def _load_profiles(self):
-        """Carga y muestra los perfiles en el grid."""
+        """Carga y muestra los perfiles con múltiples criterios en el grid."""
         # Limpiar el grid actual
         for item in self.profiles_tree.get_children():
             self.profiles_tree.delete(item)
@@ -174,23 +175,36 @@ class TopPanel:
 
         # Añadir perfiles al grid
         for profile in profiles:
-            # Formatear la fecha de última búsqueda
-            last_search = "Nunca" if not profile.last_search else profile.last_search.strftime("%d/%m/%Y %H:%M")
+            try:
+                # Formatear la fecha de última búsqueda
+                last_search = "Nunca" if not profile.last_search else profile.last_search.strftime("%d/%m/%Y %H:%M")
 
-            # Añadir fila a la tabla
-            item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
-                profile.name,
-                profile.search_criteria,
-                profile.found_emails,
-                last_search,
-                "🗑️ Eliminar"
-            ))
+                # Usar el método get_criteria_display() para mostrar criterios de manera legible
+                criteria_display = profile.get_criteria_display()
 
-            # Guardar el profile_id como tag
-            self.profiles_tree.item(item_id, tags=(profile.profile_id,))
+                # Añadir fila a la tabla
+                item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
+                    profile.name,
+                    criteria_display,  # Ahora muestra múltiples criterios de forma legible
+                    profile.found_emails,
+                    last_search,
+                    "🗑️ Eliminar"
+                ))
 
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(f"Perfiles cargados: {len(profiles)}")
+                # Guardar el profile_id como tag
+                self.profiles_tree.item(item_id, tags=(profile.profile_id,))
+
+            except Exception as e:
+                self._add_log(f"Error al cargar perfil {profile.name}: {e}")
+                continue
+
+        # Mostrar estadísticas en el log
+        if profiles and self.bottom_right_panel:
+            summary = self.profile_manager.get_profiles_summary()
+            self.bottom_right_panel.add_log_entry(
+                f"Perfiles cargados: {summary['total_profiles']} "
+                f"({summary['total_criteria']} criterios total)"
+            )
 
     def _on_tree_click(self, event):
         """Maneja los clics en el árbol para la acción de eliminar."""
@@ -226,7 +240,7 @@ class TopPanel:
     def _open_new_profile_modal(self):
         """Abre el modal para crear un nuevo perfil."""
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry("Creando nuevo perfil")
+            self.bottom_right_panel.add_log_entry("Creando nuevo perfil con múltiples criterios")
 
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
@@ -244,7 +258,10 @@ class TopPanel:
     def _edit_profile(self, profile):
         """Abre el modal para editar un perfil."""
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(f"Editando perfil: {profile.name}")
+            criterios_count = len(profile.search_criteria)
+            self.bottom_right_panel.add_log_entry(
+                f"Editando perfil: {profile.name} ({criterios_count} criterios)"
+            )
 
         ProfileModal(
             self.parent_frame,
@@ -255,56 +272,73 @@ class TopPanel:
 
     def _delete_profile(self, profile):
         """Elimina un perfil tras confirmación."""
+        criterios_count = len(profile.search_criteria)
+        criterios_text = "criterio" if criterios_count == 1 else "criterios"
+
         confirm = messagebox.askyesno(
             "Confirmar eliminación",
-            f"¿Estás seguro de eliminar el perfil '{profile.name}'?",
+            f"¿Estás seguro de eliminar el perfil '{profile.name}'?\n"
+            f"Se perderán {criterios_count} {criterios_text} de búsqueda.",
             icon=messagebox.WARNING
         )
 
         if confirm:
             if self.profile_manager.delete_profile(profile.profile_id):
                 if self.bottom_right_panel:
-                    self.bottom_right_panel.add_log_entry(f"Perfil eliminado: {profile.name}")
+                    self.bottom_right_panel.add_log_entry(
+                        f"Perfil eliminado: {profile.name} ({criterios_count} criterios)"
+                    )
                 self._load_profiles()
             else:
                 messagebox.showerror("Error", "No se pudo eliminar el perfil")
 
     def _run_search(self, profile):
         """
-        Ejecuta la búsqueda con el perfil seleccionado.
+        Ejecuta la búsqueda con todos los criterios del perfil seleccionado.
 
         Args:
-            profile: Perfil de búsqueda
+            profile: Perfil de búsqueda con múltiples criterios
 
         Returns:
-            int: Número de correos encontrados
+            int: Número total de correos encontrados (suma de todos los criterios)
         """
+        criterios_count = len(profile.search_criteria)
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(f"Ejecutando búsqueda con perfil: {profile.name}")
+            self.bottom_right_panel.add_log_entry(
+                f"Ejecutando búsqueda: '{profile.name}' con {criterios_count} criterio(s)"
+            )
 
-        # Ejecutar búsqueda real usando el servicio
-        found = self.search_service.search_emails(profile)
+        # Ejecutar búsqueda real usando el servicio (ahora maneja múltiples criterios)
+        total_found = self.search_service.search_emails(profile)
 
         # Actualizar resultados en el perfil
-        self.profile_manager.update_search_results(profile.profile_id, found)
+        self.profile_manager.update_search_results(profile.profile_id, total_found)
 
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(f"Búsqueda completada: {found} correos encontrados")
+            self.bottom_right_panel.add_log_entry(
+                f"Búsqueda completada: {total_found} correos encontrados "
+                f"(suma de {criterios_count} criterios)"
+            )
 
         # Actualizar el grid
         self._load_profiles()
-        return found
+        return total_found
 
     def _run_global_search(self):
-        """Ejecuta la búsqueda para todos los perfiles."""
+        """Ejecuta la búsqueda para todos los perfiles con todos sus criterios."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
             messagebox.showinfo("Información", "No hay perfiles de búsqueda para ejecutar.")
             return
 
+        # Calcular total de criterios para mostrar progreso
+        total_criterios = sum(len(p.search_criteria) for p in profiles)
+
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry("Iniciando búsqueda global con todos los perfiles")
+            self.bottom_right_panel.add_log_entry(
+                f"Iniciando búsqueda global: {len(profiles)} perfiles, {total_criterios} criterios total"
+            )
 
         total_found = 0
         profiles_searched = 0
@@ -319,22 +353,32 @@ class TopPanel:
         messagebox.showinfo(
             "Búsqueda global completada",
             f"Se han procesado {profiles_searched} perfiles.\n"
+            f"Total de criterios buscados: {total_criterios}\n"
             f"Total de correos encontrados: {total_found}."
         )
 
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(f"Búsqueda global completada. Total: {total_found} correos")
+            self.bottom_right_panel.add_log_entry(
+                f"✅ Búsqueda global completada: {total_found} correos "
+                f"({total_criterios} criterios procesados)"
+            )
 
     def _generate_report(self):
-        """Genera y envía reporte Excel con información de perfiles."""
+        """Genera y envía reporte Excel con información de perfiles y múltiples criterios."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
             messagebox.showinfo("Información", "No hay perfiles para generar reporte.")
             return
 
+        # Obtener estadísticas mejoradas
+        summary = self.profile_manager.get_profiles_summary()
+
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry("Iniciando generación de reporte")
+            self.bottom_right_panel.add_log_entry(
+                f"Iniciando generación de reporte: {summary['total_profiles']} perfiles, "
+                f"{summary['total_criteria']} criterios total"
+            )
 
         try:
             # Generar archivo Excel
@@ -348,7 +392,9 @@ class TopPanel:
 
             if success:
                 if self.bottom_right_panel:
-                    self.bottom_right_panel.add_log_entry("✅ Reporte enviado por correo exitosamente")
+                    self.bottom_right_panel.add_log_entry(
+                        "✅ Reporte con múltiples criterios enviado por correo exitosamente"
+                    )
                 messagebox.showinfo("Éxito", "Reporte generado y enviado por correo correctamente.")
             else:
                 if self.bottom_right_panel:
@@ -370,7 +416,11 @@ class TopPanel:
             self._add_log("No hay perfiles para generar reporte programado")
             return False
 
-        self._add_log("Iniciando generación de reporte programado")
+        summary = self.profile_manager.get_profiles_summary()
+        self._add_log(
+            f"Iniciando reporte programado: {summary['total_profiles']} perfiles, "
+            f"{summary['total_criteria']} criterios"
+        )
 
         try:
             # Generar archivo Excel
@@ -381,7 +431,7 @@ class TopPanel:
             success = self.email_service.send_report(report_path)
 
             if success:
-                self._add_log("✅ Reporte programado enviado por correo exitosamente")
+                self._add_log("✅ Reporte programado con múltiples criterios enviado exitosamente")
                 return True
             else:
                 self._add_log("❌ Error al enviar reporte programado por correo")
@@ -403,8 +453,12 @@ class TopPanel:
             self.bottom_right_panel.add_log_entry(message)
 
     def get_data(self):
-        """Retorna los datos actuales del panel."""
+        """Retorna los datos actuales del panel con información de múltiples criterios."""
+        summary = self.profile_manager.get_profiles_summary()
         return {
             "panel_type": "top_panel",
-            "profiles_count": len(self.profile_manager.get_all_profiles())
+            "profiles_count": summary['total_profiles'],
+            "total_criteria": summary['total_criteria'],
+            "active_profiles": summary['active_profiles'],
+            "total_emails_found": summary['total_emails_found']
         }

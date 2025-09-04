@@ -1,7 +1,7 @@
 # services/search_service.py
 """
 Servicio para búsqueda de correos electrónicos en bandejas de entrada reales.
-Implementa búsqueda IMAP en correos del día actual basada en criterios de asunto.
+Implementa búsqueda IMAP con múltiples criterios de asunto y suma los resultados.
 """
 
 import imaplib
@@ -15,7 +15,7 @@ from email.header import decode_header
 
 
 class SearchService:
-    """Servicio para buscar correos electrónicos reales vía IMAP."""
+    """Servicio para buscar correos electrónicos reales vía IMAP con múltiples criterios."""
 
     # Mapeo de servidores SMTP a IMAP
     IMAP_SERVERS = {
@@ -45,48 +45,71 @@ class SearchService:
 
     def search_emails(self, profile):
         """
-        Busca correos electrónicos del día actual basados en los criterios del perfil.
+        Busca correos electrónicos del día actual basados en todos los criterios del perfil.
+        Suma los resultados de todos los criterios.
 
         Args:
-            profile: Perfil de búsqueda con los criterios
+            profile: Perfil de búsqueda con los criterios (puede tener hasta 3)
 
         Returns:
-            int: Número de correos encontrados
+            int: Número total de correos encontrados sumando todos los criterios
         """
         self._log(f"Iniciando búsqueda con perfil: {profile.name}")
+
+        # Verificar que el perfil tenga criterios válidos
+        if not hasattr(profile, 'search_criteria') or not profile.search_criteria:
+            self._log("Error: El perfil no tiene criterios de búsqueda válidos")
+            return 0
+
+        # Compatibilidad hacia atrás: convertir string a lista si es necesario
+        criterios = profile.search_criteria
+        if isinstance(criterios, str):
+            criterios = [criterios]
+
+        self._log(f"Criterios de búsqueda configurados: {len(criterios)}")
+        for i, criterio in enumerate(criterios, 1):
+            self._log(f"  Criterio {i}: '{criterio}'")
+
         start_time = datetime.now()
+        total_found = 0
 
         try:
-            # Crear clave de caché única para hoy y este criterio
-            today_str = date.today().isoformat()
-            cache_key = f"{today_str}_{profile.search_criteria}"
-
-            # Verificar caché
-            if cache_key in self.email_cache:
-                count = self.email_cache[cache_key]
-                self._log(f"Utilizando resultados en caché para '{profile.search_criteria}': {count} correos")
-                return count
-
             # Cargar configuración SMTP
             smtp_config = self._load_smtp_config()
             if not smtp_config:
                 self._log("Error: No se encontró configuración SMTP")
                 return 0
 
-            # Realizar búsqueda IMAP real
-            found_count = self._perform_imap_search(smtp_config, profile.search_criteria)
+            # Buscar correos para cada criterio
+            for i, criterio in enumerate(criterios, 1):
+                self._log(f"Procesando criterio {i}/{len(criterios)}: '{criterio}'")
 
-            # Guardar en caché
-            self.email_cache[cache_key] = found_count
-            self._save_cache()
+                # Crear clave de caché única para hoy y este criterio específico
+                today_str = date.today().isoformat()
+                cache_key = f"{today_str}_{criterio.strip().lower()}"
+
+                # Verificar caché para este criterio específico
+                if cache_key in self.email_cache:
+                    count = self.email_cache[cache_key]
+                    self._log(f"Utilizando resultados en caché para '{criterio}': {count} correos")
+                else:
+                    # Realizar búsqueda IMAP para este criterio
+                    count = self._perform_imap_search(smtp_config, criterio.strip())
+
+                    # Guardar en caché
+                    self.email_cache[cache_key] = count
+                    self._save_cache()
+
+                self._log(f"Criterio '{criterio}': {count} correos encontrados")
+                total_found += count
 
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
 
             self._log(f"Búsqueda completada en {duration:.2f} segundos")
-            self._log(f"Correos encontrados: {found_count}")
+            self._log(f"TOTAL de correos encontrados: {total_found} (suma de {len(criterios)} criterios)")
 
-            return found_count
+            return total_found
 
         except Exception as e:
             self._log(f"Error durante la búsqueda: {e}")
@@ -94,14 +117,14 @@ class SearchService:
 
     def _perform_imap_search(self, smtp_config, search_criteria):
         """
-        Realiza la búsqueda IMAP en el correo configurado.
+        Realiza la búsqueda IMAP en el correo configurado para un criterio específico.
 
         Args:
             smtp_config (dict): Configuración SMTP/IMAP
             search_criteria (str): Criterio de búsqueda para el asunto
 
         Returns:
-            int: Número de correos que coinciden
+            int: Número de correos que coinciden con este criterio específico
         """
         mail = None
         try:
@@ -113,39 +136,39 @@ class SearchService:
                 self._log(f"Servidor IMAP no soportado: {smtp_server}")
                 return 0
 
-            self._log(f"Conectando a {imap_config['server']}...")
+            self._log(f"Conectando a {imap_config['server']} para criterio '{search_criteria}'...")
 
             # Crear conexión IMAP con SSL
             mail = imaplib.IMAP4_SSL(imap_config['server'], imap_config['port'])
 
             # Autenticar con las mismas credenciales SMTP
             mail.login(smtp_config['username'], smtp_config['password'])
-            self._log("Autenticación IMAP exitosa")
 
             # Seleccionar bandeja de entrada
             mail.select('inbox')
-            self._log("Bandeja de entrada seleccionada")
 
             # Buscar correos del día actual
             today = date.today().strftime("%d-%b-%Y")
             search_criteria_imap = f'(ON "{today}")'
 
-            self._log(f"Buscando correos del {today}...")
             status, messages = mail.search(None, search_criteria_imap)
 
             if status != 'OK':
-                self._log("Error al buscar correos")
+                self._log(f"Error al buscar correos para criterio '{search_criteria}'")
                 return 0
 
             message_ids = messages[0].split()
-            self._log(f"Encontrados {len(message_ids)} correos del día actual")
+            total_today = len(message_ids)
 
-            if not message_ids:
+            if total_today == 0:
+                self._log(f"No hay correos del {today} para analizar")
                 return 0
 
             # Filtrar por criterio de búsqueda en el asunto
             matching_count = 0
             search_term = search_criteria.lower()
+
+            self._log(f"Analizando {total_today} correos del día para el criterio '{search_criteria}'...")
 
             for msg_id in message_ids:
                 try:
@@ -166,20 +189,20 @@ class SearchService:
                         # Verificar si el criterio de búsqueda está en el asunto
                         if search_term in decoded_subject.lower():
                             matching_count += 1
-                            self._log(f"Match encontrado: {decoded_subject[:50]}...")
+                            self._log(f"Match para '{search_criteria}': {decoded_subject[:50]}...")
 
                 except Exception as e:
                     self._log(f"Error procesando mensaje {msg_id}: {e}")
                     continue
 
-            self._log(f"Total de correos que coinciden con '{search_criteria}': {matching_count}")
+            self._log(f"Criterio '{search_criteria}': {matching_count}/{total_today} correos coinciden")
             return matching_count
 
         except imaplib.IMAP4.error as e:
-            self._log(f"Error IMAP: {e}")
+            self._log(f"Error IMAP para criterio '{search_criteria}': {e}")
             return 0
         except Exception as e:
-            self._log(f"Error inesperado en búsqueda IMAP: {e}")
+            self._log(f"Error inesperado en búsqueda IMAP para '{search_criteria}': {e}")
             return 0
         finally:
             # Cerrar conexión IMAP
@@ -187,7 +210,6 @@ class SearchService:
                 try:
                     mail.close()
                     mail.logout()
-                    self._log("Conexión IMAP cerrada")
                 except:
                     pass
 
@@ -262,7 +284,6 @@ class SearchService:
         try:
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(self.email_cache, f, indent=4, ensure_ascii=False)
-            self._log("Caché de correos guardada")
         except Exception as e:
             self._log(f"Error al guardar caché: {e}")
 
