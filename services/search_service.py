@@ -1,7 +1,8 @@
-# services/search_service.py
+# search_service.py
 """
 Servicio para búsqueda de correos electrónicos en bandejas de entrada reales.
-Implementa búsqueda IMAP con múltiples criterios de asunto y suma los resultados.
+Implementa búsqueda IMAP mejorada con múltiples criterios de asunto, detección precisa
+de correos por timestamp y suma de resultados con rango de fechas expandido.
 """
 
 import imaplib
@@ -10,12 +11,13 @@ import ssl
 import json
 import os
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from email.header import decode_header
+from email.utils import parsedate_to_datetime
 
 
 class SearchService:
-    """Servicio para buscar correos electrónicos reales vía IMAP con múltiples criterios."""
+    """Servicio para buscar correos electrónicos reales vía IMAP con detección mejorada por timestamp."""
 
     # Mapeo de servidores SMTP a IMAP
     IMAP_SERVERS = {
@@ -25,7 +27,7 @@ class SearchService:
 
     def __init__(self, data_dir=None, log_callback=None):
         """
-        Inicializa el servicio de búsqueda IMAP.
+        Inicializa el servicio de búsqueda IMAP mejorada.
 
         Args:
             data_dir (str, optional): Directorio de datos para caché. Por defecto "data".
@@ -38,15 +40,15 @@ class SearchService:
         # Crear directorio de datos si no existe
         os.makedirs(self.data_dir, exist_ok=True)
 
-        # Sistema de caché por día
+        # Sistema de caché por día mejorado
         self.cache_file = self.data_dir / "daily_email_cache.json"
         self.email_cache = {}
         self._load_cache()
 
     def search_emails(self, profile):
         """
-        Busca correos electrónicos del día actual basados en todos los criterios del perfil.
-        Suma los resultados de todos los criterios.
+        Busca correos electrónicos del día actual con detección mejorada por timestamp.
+        Utiliza rango de fechas expandido y verificación manual de timestamps.
 
         Args:
             profile: Perfil de búsqueda con los criterios (puede tener hasta 3)
@@ -54,11 +56,11 @@ class SearchService:
         Returns:
             int: Número total de correos encontrados sumando todos los criterios
         """
-        self._log(f"Iniciando búsqueda con perfil: {profile.name}")
+        self._log(f"🔍 Iniciando búsqueda mejorada con perfil: {profile.name}")
 
         # Verificar que el perfil tenga criterios válidos
         if not hasattr(profile, 'search_criteria') or not profile.search_criteria:
-            self._log("Error: El perfil no tiene criterios de búsqueda válidos")
+            self._log("❌ Error: El perfil no tiene criterios de búsqueda válidos")
             return 0
 
         # Compatibilidad hacia atrás: convertir string a lista si es necesario
@@ -66,9 +68,9 @@ class SearchService:
         if isinstance(criterios, str):
             criterios = [criterios]
 
-        self._log(f"Criterios de búsqueda configurados: {len(criterios)}")
+        self._log(f"📋 Criterios configurados: {len(criterios)}")
         for i, criterio in enumerate(criterios, 1):
-            self._log(f"  Criterio {i}: '{criterio}'")
+            self._log(f"  └── Criterio {i}: '{criterio}'")
 
         start_time = datetime.now()
         total_found = 0
@@ -77,12 +79,12 @@ class SearchService:
             # Cargar configuración SMTP
             smtp_config = self._load_smtp_config()
             if not smtp_config:
-                self._log("Error: No se encontró configuración SMTP")
+                self._log("❌ Error: No se encontró configuración SMTP")
                 return 0
 
-            # Buscar correos para cada criterio
+            # Buscar correos para cada criterio con método mejorado
             for i, criterio in enumerate(criterios, 1):
-                self._log(f"Procesando criterio {i}/{len(criterios)}: '{criterio}'")
+                self._log(f"🎯 Procesando criterio {i}/{len(criterios)}: '{criterio}'")
 
                 # Crear clave de caché única para hoy y este criterio específico
                 today_str = date.today().isoformat()
@@ -91,33 +93,33 @@ class SearchService:
                 # Verificar caché para este criterio específico
                 if cache_key in self.email_cache:
                     count = self.email_cache[cache_key]
-                    self._log(f"Utilizando resultados en caché para '{criterio}': {count} correos")
+                    self._log(f"💾 Usando resultados en caché para '{criterio}': {count} correos")
                 else:
-                    # Realizar búsqueda IMAP para este criterio
-                    count = self._perform_imap_search(smtp_config, criterio.strip())
+                    # Realizar búsqueda IMAP mejorada para este criterio
+                    count = self._perform_enhanced_imap_search(smtp_config, criterio.strip())
 
                     # Guardar en caché
                     self.email_cache[cache_key] = count
                     self._save_cache()
 
-                self._log(f"Criterio '{criterio}': {count} correos encontrados")
+                self._log(f"✅ Criterio '{criterio}': {count} correos encontrados")
                 total_found += count
 
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
 
-            self._log(f"Búsqueda completada en {duration:.2f} segundos")
-            self._log(f"TOTAL de correos encontrados: {total_found} (suma de {len(criterios)} criterios)")
+            self._log(f"🏁 Búsqueda mejorada completada en {duration:.2f} segundos")
+            self._log(f"📊 TOTAL de correos encontrados: {total_found} (suma de {len(criterios)} criterios)")
 
             return total_found
 
         except Exception as e:
-            self._log(f"Error durante la búsqueda: {e}")
+            self._log(f"💥 Error durante la búsqueda mejorada: {e}")
             return 0
 
-    def _perform_imap_search(self, smtp_config, search_criteria):
+    def _perform_enhanced_imap_search(self, smtp_config, search_criteria):
         """
-        Realiza la búsqueda IMAP en el correo configurado para un criterio específico.
+        Realiza búsqueda IMAP mejorada con rango de fechas expandido y verificación de timestamp.
 
         Args:
             smtp_config (dict): Configuración SMTP/IMAP
@@ -133,10 +135,10 @@ class SearchService:
             imap_config = self.IMAP_SERVERS.get(smtp_server)
 
             if not imap_config:
-                self._log(f"Servidor IMAP no soportado: {smtp_server}")
+                self._log(f"❌ Servidor IMAP no soportado: {smtp_server}")
                 return 0
 
-            self._log(f"Conectando a {imap_config['server']} para criterio '{search_criteria}'...")
+            self._log(f"🔗 Conectando a {imap_config['server']} para criterio '{search_criteria}'...")
 
             # Crear conexión IMAP con SSL
             mail = imaplib.IMAP4_SSL(imap_config['server'], imap_config['port'])
@@ -147,32 +149,40 @@ class SearchService:
             # Seleccionar bandeja de entrada
             mail.select('inbox')
 
-            # Buscar correos del día actual
-            today = date.today().strftime("%d-%b-%Y")
-            search_criteria_imap = f'(ON "{today}")'
+            # BÚSQUEDA MEJORADA: Usar rango de fechas expandido
+            today = date.today()
+            yesterday = today - timedelta(days=1)
+
+            # Buscar correos desde ayer para capturar correos en el límite del día
+            yesterday_str = yesterday.strftime("%d-%b-%Y")
+            search_criteria_imap = f'(SINCE "{yesterday_str}")'
+
+            self._log(f"📅 Buscando correos desde {yesterday_str} para filtrar por timestamp")
 
             status, messages = mail.search(None, search_criteria_imap)
 
             if status != 'OK':
-                self._log(f"Error al buscar correos para criterio '{search_criteria}'")
+                self._log(f"❌ Error al buscar correos para criterio '{search_criteria}'")
                 return 0
 
             message_ids = messages[0].split()
-            total_today = len(message_ids)
+            total_candidates = len(message_ids)
 
-            if total_today == 0:
-                self._log(f"No hay correos del {today} para analizar")
+            if total_candidates == 0:
+                self._log(f"📭 No hay correos candidatos para analizar")
                 return 0
 
-            # Filtrar por criterio de búsqueda en el asunto
+            self._log(f"📬 Analizando {total_candidates} correos candidatos para el criterio '{search_criteria}'...")
+
+            # Filtrar por criterio de búsqueda y verificar timestamp del día actual
             matching_count = 0
             search_term = search_criteria.lower()
-
-            self._log(f"Analizando {total_today} correos del día para el criterio '{search_criteria}'...")
+            today_start = datetime.combine(today, datetime.min.time())
+            today_end = datetime.combine(today, datetime.max.time())
 
             for msg_id in message_ids:
                 try:
-                    # Obtener el correo
+                    # Obtener el correo con headers
                     status, msg_data = mail.fetch(msg_id, '(RFC822)')
 
                     if status != 'OK':
@@ -180,8 +190,32 @@ class SearchService:
 
                     # Parsear el mensaje
                     email_message = email.message_from_bytes(msg_data[0][1])
-                    subject = email_message['subject']
 
+                    # Verificar timestamp del correo
+                    date_header = email_message.get('Date')
+                    if not date_header:
+                        continue
+
+                    try:
+                        # Convertir fecha del correo a datetime
+                        email_datetime = parsedate_to_datetime(date_header)
+
+                        # Convertir a fecha local si tiene zona horaria
+                        if email_datetime.tzinfo is not None:
+                            email_datetime = email_datetime.astimezone()
+                            # Remover zona horaria para comparación
+                            email_datetime = email_datetime.replace(tzinfo=None)
+
+                        # VERIFICACIÓN MEJORADA: Solo correos del día actual
+                        if not (today_start <= email_datetime <= today_end):
+                            continue
+
+                    except (ValueError, TypeError) as e:
+                        self._log(f"⚠️ Error procesando fecha del correo {msg_id}: {e}")
+                        continue
+
+                    # Verificar el criterio de búsqueda en el asunto
+                    subject = email_message['subject']
                     if subject:
                         # Decodificar el asunto si está codificado
                         decoded_subject = self._decode_subject(subject)
@@ -189,20 +223,22 @@ class SearchService:
                         # Verificar si el criterio de búsqueda está en el asunto
                         if search_term in decoded_subject.lower():
                             matching_count += 1
-                            self._log(f"Match para '{search_criteria}': {decoded_subject[:50]}...")
+                            timestamp_str = email_datetime.strftime("%H:%M:%S")
+                            self._log(f"✨ Match encontrado [{timestamp_str}]: {decoded_subject[:60]}...")
 
                 except Exception as e:
-                    self._log(f"Error procesando mensaje {msg_id}: {e}")
+                    self._log(f"⚠️ Error procesando mensaje {msg_id}: {e}")
                     continue
 
-            self._log(f"Criterio '{search_criteria}': {matching_count}/{total_today} correos coinciden")
+            self._log(
+                f"🎯 Criterio '{search_criteria}': {matching_count}/{total_candidates} correos válidos del día actual")
             return matching_count
 
         except imaplib.IMAP4.error as e:
-            self._log(f"Error IMAP para criterio '{search_criteria}': {e}")
+            self._log(f"❌ Error IMAP para criterio '{search_criteria}': {e}")
             return 0
         except Exception as e:
-            self._log(f"Error inesperado en búsqueda IMAP para '{search_criteria}': {e}")
+            self._log(f"💥 Error inesperado en búsqueda IMAP para '{search_criteria}': {e}")
             return 0
         finally:
             # Cerrar conexión IMAP
@@ -238,7 +274,7 @@ class SearchService:
 
             return decoded_subject
         except Exception as e:
-            self._log(f"Error decodificando asunto: {e}")
+            self._log(f"⚠️ Error decodificando asunto: {e}")
             return subject if isinstance(subject, str) else str(subject)
 
     def _load_smtp_config(self):
@@ -252,10 +288,10 @@ class SearchService:
             if self.smtp_config_file.exists():
                 with open(self.smtp_config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                self._log("Configuración SMTP cargada para búsqueda IMAP")
+                self._log("⚙️ Configuración SMTP cargada para búsqueda IMAP")
                 return config
         except Exception as e:
-            self._log(f"Error cargando configuración SMTP: {e}")
+            self._log(f"❌ Error cargando configuración SMTP: {e}")
         return None
 
     def _load_cache(self):
@@ -272,9 +308,9 @@ class SearchService:
                     if key.startswith(today_str)
                 }
 
-                self._log(f"Caché de correos cargada: {len(self.email_cache)} entradas del día actual")
+                self._log(f"💾 Caché de correos cargada: {len(self.email_cache)} entradas del día actual")
             except Exception as e:
-                self._log(f"Error al cargar caché: {e}")
+                self._log(f"⚠️ Error al cargar caché: {e}")
                 self.email_cache = {}
         else:
             self.email_cache = {}
@@ -285,7 +321,7 @@ class SearchService:
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(self.email_cache, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            self._log(f"Error al guardar caché: {e}")
+            self._log(f"⚠️ Error al guardar caché: {e}")
 
     def _log(self, message):
         """
@@ -303,9 +339,9 @@ class SearchService:
         try:
             if self.cache_file.exists():
                 os.remove(self.cache_file)
-            self._log("Caché de correos limpiada")
+            self._log("🗑️ Caché de correos limpiada")
         except Exception as e:
-            self._log(f"Error al limpiar caché: {e}")
+            self._log(f"⚠️ Error al limpiar caché: {e}")
 
     def get_cache_info(self):
         """
@@ -320,5 +356,6 @@ class SearchService:
         return {
             "total_entries": len(self.email_cache),
             "today_entries": today_entries,
-            "cache_date": today_str
+            "cache_date": today_str,
+            "enhanced_search": True  # Indicador de que usa búsqueda mejorada
         }

@@ -2,7 +2,7 @@
 """
 Servicio para generar reportes Excel optimizados de perfiles de búsqueda.
 Crea archivos Excel con título general, información esencial de los perfiles,
-seguimiento de ejecuciones óptimas con formato condicional verde y tipo de bot.
+seguimiento de ejecuciones óptimas con formato condicional por rangos y tipo de bot.
 """
 
 import os
@@ -29,7 +29,7 @@ class ReportService:
     def generate_profiles_report(self, profiles):
         """
         Genera un reporte Excel optimizado con título general e información esencial de perfiles,
-        incluyendo seguimiento de ejecuciones óptimas con colores condicionales y tipo de bot.
+        incluyendo seguimiento de ejecuciones óptimas con colores condicionales por rangos y tipo de bot.
 
         Args:
             profiles (list): Lista de perfiles de búsqueda
@@ -68,13 +68,26 @@ class ReportService:
         header_fill = PatternFill(start_color="FF366092", end_color="FF366092", fill_type="solid")
         header_alignment = Alignment(horizontal="center", vertical="center")
 
-        # Estilo para éxito óptimo (verde)
-        success_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
-        success_font = Font(bold=True, color="006400")
+        # NUEVOS ESTILOS PARA PORCENTAJE DE ÉXITO POR RANGOS
+        # 100%: Verde
+        success_100_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
+        success_100_font = Font(bold=True, color="006400")
 
-        # Estilos para tipos de bot con colores aRGB corregidos
-        bot_auto_fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
-        bot_manual_fill = PatternFill(start_color="FFFFF2E6", end_color="FFFFF2E6", fill_type="solid")
+        # 90-50%: Morado
+        success_90_50_fill = PatternFill(start_color="FFE6E6FA", end_color="FFE6E6FA", fill_type="solid")
+        success_90_50_font = Font(bold=True, color="800080")
+
+        # 50-30%: Amarillo
+        success_50_30_fill = PatternFill(start_color="FFFFFF99", end_color="FFFFFF99", fill_type="solid")
+        success_50_30_font = Font(bold=True, color="B8860B")
+
+        # <30%: Rojo
+        success_low_fill = PatternFill(start_color="FFFFCCCC", end_color="FFFFCCCC", fill_type="solid")
+        success_low_font = Font(bold=True, color="CC0000")
+
+        # NUEVO ESTILO PARA TIPOS DE BOT: ROSA UNIFORME
+        bot_fill = PatternFill(start_color="FFFFC0CB", end_color="FFFFC0CB", fill_type="solid")  # Rosa claro
+        bot_font = Font(bold=True, color="C71585")  # Rosa oscuro/magenta
 
         border_style = Side(border_style="thin", color="000000")
         border = Border(top=border_style, bottom=border_style, left=border_style, right=border_style)
@@ -82,7 +95,7 @@ class ReportService:
         # === AGREGAR TÍTULO GENERAL (FILAS 1 Y 2) ===
 
         # Fila 1: Título principal
-        worksheet.merge_cells('A1:G1')  # Extendido a columna G por las nuevas columnas
+        worksheet.merge_cells('A1:G1')
         title_cell = worksheet['A1']
         title_cell.value = "Reporte de Ejecuciones - Registro Diario"
         title_cell.font = title_font
@@ -99,7 +112,7 @@ class ReportService:
         current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         total_bots = len(profiles)
 
-        worksheet.merge_cells('A2:G2')  # Extendido a columna G
+        worksheet.merge_cells('A2:G2')
         subtitle_cell = worksheet['A2']
         subtitle_cell.value = f"Generado el {current_date} - Total de Bots: {total_bots}"
         subtitle_cell.font = subtitle_font
@@ -119,8 +132,8 @@ class ReportService:
             "Cantidad de ejecuciones",
             "Ejecuciones Óptimas",
             "Porcentaje de Éxito",
-            "Bot Automático",      # NUEVA COLUMNA
-            "Bot Manual",          # NUEVA COLUMNA
+            "Bot Automático",
+            "Bot Manual",
             "Última Búsqueda"
         ]
 
@@ -152,41 +165,67 @@ class ReportService:
             cell.alignment = Alignment(horizontal="center")
             cell.border = border
 
-            # Porcentaje de Éxito
+            # PORCENTAJE DE ÉXITO CON COLORES POR RANGOS
             cell = worksheet.cell(row=row_num, column=4)
             success_display = profile.get_success_display()
+            success_percentage = profile.get_success_percentage()
+
             cell.value = success_display
             cell.alignment = Alignment(horizontal="center")
             cell.border = border
 
-            # Aplicar formato condicional verde si es óptimo (≥100%)
-            if profile.is_success_optimal():
-                cell.fill = success_fill
-                cell.font = success_font
-                cell.value = f"✅ {success_display}"
+            # Aplicar formato condicional por rangos
+            if success_percentage is not None:
+                if success_percentage >= 100.0:
+                    # 100%: Verde con ✅
+                    cell.fill = success_100_fill
+                    cell.font = success_100_font
+                    cell.value = f"✅ {success_display}"
+                elif success_percentage >= 90.0:
+                    # 90-99%: Morado con 📊
+                    cell.fill = success_90_50_fill
+                    cell.font = success_90_50_font
+                    cell.value = f"📊 {success_display}"
+                elif success_percentage >= 50.0:
+                    # 50-89%: Morado con 📊
+                    cell.fill = success_90_50_fill
+                    cell.font = success_90_50_font
+                    cell.value = f"📊 {success_display}"
+                elif success_percentage >= 30.0:
+                    # 30-49%: Amarillo con ⚠️
+                    cell.fill = success_50_30_fill
+                    cell.font = success_50_30_font
+                    cell.value = f"⚠️ {success_display}"
+                else:
+                    # <30%: Rojo con ❌
+                    cell.fill = success_low_fill
+                    cell.font = success_low_font
+                    cell.value = f"❌ {success_display}"
 
-            # NUEVA COLUMNA: Bot Automático
+            # COLUMNA BOT AUTOMÁTICO: ROSA CON X
             cell = worksheet.cell(row=row_num, column=5)
             if profile.is_bot_automatic():
-                cell.value = "✅"
-                cell.fill = bot_auto_fill
+                cell.value = "X"
+                cell.fill = bot_fill
+                cell.font = bot_font
             else:
                 cell.value = ""
             cell.alignment = Alignment(horizontal="center")
             cell.border = border
 
-            # NUEVA COLUMNA: Bot Manual
+            # COLUMNA BOT MANUAL: ROSA CON X
             cell = worksheet.cell(row=row_num, column=6)
             if profile.is_bot_manual():
-                cell.value = "✅"
-                cell.fill = bot_manual_fill
+                cell.value = "X"
+                cell.fill = bot_fill
+                cell.font = bot_font
             else:
                 cell.value = ""
             cell.alignment = Alignment(horizontal="center")
             cell.border = border
 
             # Última Búsqueda
-            cell = worksheet.cell(row=row_num, column=7)  # Movido a columna 7
+            cell = worksheet.cell(row=row_num, column=7)
             if profile.last_search:
                 cell.value = profile.last_search.strftime("%d/%m/%Y %H:%M:%S")
             else:
@@ -200,9 +239,9 @@ class ReportService:
             2: 20,  # Cantidad de ejecuciones
             3: 18,  # Ejecuciones Óptimas
             4: 18,  # Porcentaje de Éxito
-            5: 15,  # Bot Automático (NUEVA)
-            6: 12,  # Bot Manual (NUEVA)
-            7: 22   # Última Búsqueda
+            5: 15,  # Bot Automático
+            6: 12,  # Bot Manual
+            7: 22  # Última Búsqueda
         }
 
         for col_num, width in column_widths.items():
@@ -275,20 +314,22 @@ class ReportService:
             worksheet.cell(row=11, column=1).font = Font(bold=True)
             worksheet.cell(row=11, column=2).value = round(avg_executions, 2)
 
-        # NUEVA SECCIÓN: TIPOS DE BOT
+        # SECCIÓN: TIPOS DE BOT CON COLORES ROSA
         automatic_bots = [p for p in profiles if p.is_bot_automatic()]
         manual_bots = [p for p in profiles if p.is_bot_manual()]
 
         worksheet.cell(row=13, column=1).value = "TIPOS DE BOT"
-        worksheet.cell(row=13, column=1).font = Font(bold=True, size=14, color="800080")
+        worksheet.cell(row=13, column=1).font = Font(bold=True, size=14, color="C71585")  # Rosa oscuro
 
         worksheet.cell(row=14, column=1).value = "Bots Automáticos:"
         worksheet.cell(row=14, column=1).font = Font(bold=True)
         worksheet.cell(row=14, column=2).value = len(automatic_bots)
+        worksheet.cell(row=14, column=2).fill = PatternFill(start_color="FFFFC0CB", end_color="FFFFC0CB", fill_type="solid")
 
         worksheet.cell(row=15, column=1).value = "Bots Manuales:"
         worksheet.cell(row=15, column=1).font = Font(bold=True)
         worksheet.cell(row=15, column=2).value = len(manual_bots)
+        worksheet.cell(row=15, column=2).fill = PatternFill(start_color="FFFFC0CB", end_color="FFFFC0CB", fill_type="solid")
 
         # Porcentaje de distribución
         if profiles:
@@ -297,9 +338,8 @@ class ReportService:
             worksheet.cell(row=16, column=1).font = Font(bold=True)
             worksheet.cell(row=16, column=2).value = f"{round(auto_percentage, 1)}%"
 
-        # MÉTRICAS DE SEGUIMIENTO ÓPTIMO
+        # MÉTRICAS DE SEGUIMIENTO ÓPTIMO CON RANGOS DE COLORES
         profiles_with_tracking = [p for p in profiles if p.track_optimal]
-        optimal_profiles = [p for p in profiles_with_tracking if p.is_success_optimal()]
 
         if profiles_with_tracking:
             worksheet.cell(row=18, column=1).value = "SEGUIMIENTO DE EJECUCIONES ÓPTIMAS"
@@ -309,21 +349,39 @@ class ReportService:
             worksheet.cell(row=19, column=1).font = Font(bold=True)
             worksheet.cell(row=19, column=2).value = len(profiles_with_tracking)
 
-            worksheet.cell(row=20, column=1).value = "Bots que alcanzaron el óptimo:"
-            worksheet.cell(row=20, column=1).font = Font(bold=True)
-            worksheet.cell(row=20, column=2).value = len(optimal_profiles)
+            # Contadores por rangos de éxito
+            success_100 = len(
+                [p for p in profiles_with_tracking if p.get_success_percentage() and p.get_success_percentage() >= 100])
+            success_90_50 = len([p for p in profiles_with_tracking if
+                                 p.get_success_percentage() and 90 <= p.get_success_percentage() < 100])
+            success_50_30 = len([p for p in profiles_with_tracking if
+                                 p.get_success_percentage() and 30 <= p.get_success_percentage() < 50])
+            success_low = len(
+                [p for p in profiles_with_tracking if p.get_success_percentage() and p.get_success_percentage() < 30])
 
-            # Tasa de éxito general
-            success_rate = (len(optimal_profiles) / len(profiles_with_tracking)) * 100
-            worksheet.cell(row=21, column=1).value = "Tasa de éxito general:"
-            worksheet.cell(row=21, column=1).font = Font(bold=True)
-            worksheet.cell(row=21, column=2).value = f"{round(success_rate, 1)}%"
+            worksheet.cell(row=20, column=1).value = "✅ Éxito óptimo (100%):"
+            worksheet.cell(row=20, column=1).font = Font(bold=True, color="006400")
+            worksheet.cell(row=20, column=2).value = success_100
+            worksheet.cell(row=20, column=2).fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90",
+                                                                fill_type="solid")
 
-            # Aplicar color verde si la tasa es alta
-            if success_rate >= 80:
-                worksheet.cell(row=21, column=2).fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90",
-                                                                    fill_type="solid")
-                worksheet.cell(row=21, column=2).font = Font(bold=True, color="006400")
+            worksheet.cell(row=21, column=1).value = "📊 Éxito alto (90-99%):"
+            worksheet.cell(row=21, column=1).font = Font(bold=True, color="800080")
+            worksheet.cell(row=21, column=2).value = success_90_50
+            worksheet.cell(row=21, column=2).fill = PatternFill(start_color="FFE6E6FA", end_color="FFE6E6FA",
+                                                                fill_type="solid")
+
+            worksheet.cell(row=22, column=1).value = "⚠️ Éxito medio (30-49%):"
+            worksheet.cell(row=22, column=1).font = Font(bold=True, color="B8860B")
+            worksheet.cell(row=22, column=2).value = success_50_30
+            worksheet.cell(row=22, column=2).fill = PatternFill(start_color="FFFFFF99", end_color="FFFFFF99",
+                                                                fill_type="solid")
+
+            worksheet.cell(row=23, column=1).value = "❌ Éxito bajo (<30%):"
+            worksheet.cell(row=23, column=1).font = Font(bold=True, color="CC0000")
+            worksheet.cell(row=23, column=2).value = success_low
+            worksheet.cell(row=23, column=2).fill = PatternFill(start_color="FFFFCCCC", end_color="FFFFCCCC",
+                                                                fill_type="solid")
 
             # Promedio de porcentaje de éxito
             success_percentages = []
@@ -334,13 +392,13 @@ class ReportService:
 
             if success_percentages:
                 avg_success = sum(success_percentages) / len(success_percentages)
-                worksheet.cell(row=22, column=1).value = "Promedio de porcentaje de éxito:"
-                worksheet.cell(row=22, column=1).font = Font(bold=True)
-                worksheet.cell(row=22, column=2).value = f"{round(avg_success, 1)}%"
+                worksheet.cell(row=24, column=1).value = "Promedio de porcentaje de éxito:"
+                worksheet.cell(row=24, column=1).font = Font(bold=True)
+                worksheet.cell(row=24, column=2).value = f"{round(avg_success, 1)}%"
 
         # Top 3 bots más productivos (actualizado con tipo de bot)
         if profiles:
-            start_row = 24 if profiles_with_tracking else 18
+            start_row = 26 if profiles_with_tracking else 18
             worksheet.cell(row=start_row, column=1).value = "TOP 3 BOTS MÁS PRODUCTIVOS"
             worksheet.cell(row=start_row, column=1).font = Font(bold=True, size=12, color="366092")
 
@@ -358,8 +416,14 @@ class ReportService:
                     success_percentage = profile.get_success_percentage()
                     if success_percentage is not None:
                         executions_text += f" ({success_percentage}% éxito)"
-                        if profile.is_success_optimal():
+                        if success_percentage >= 100:
                             executions_text += " ✅"
+                        elif success_percentage >= 90:
+                            executions_text += " 📊"
+                        elif success_percentage >= 30:
+                            executions_text += " ⚠️"
+                        else:
+                            executions_text += " ❌"
 
                 worksheet.cell(row=row, column=1).value = profile_text
                 worksheet.cell(row=row, column=2).value = executions_text
@@ -369,7 +433,7 @@ class ReportService:
         worksheet.column_dimensions['B'].width = 30
 
         # Agregar bordes a las celdas principales
-        max_row = 28 if profiles_with_tracking else 22
+        max_row = 30 if profiles_with_tracking else 22
         for row in range(1, max_row):
             for col in range(1, 3):
                 cell = worksheet.cell(row=row, column=col)

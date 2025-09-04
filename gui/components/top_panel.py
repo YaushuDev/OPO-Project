@@ -3,6 +3,7 @@
 Componente del panel superior del bot.
 Muestra perfiles de búsqueda de correos con múltiples criterios, seguimiento de ejecuciones
 óptimas con porcentajes de éxito y colores indicativos, tipo de bot (Automático/Manual) y permite gestionarlos.
+Incluye búsqueda automática antes de generar reportes para garantizar datos actualizados.
 """
 
 import tkinter as tk
@@ -36,7 +37,7 @@ class TopPanel:
         self.report_service = ReportService()
         self.email_service = EmailService()
 
-        # Inicializar el servicio de búsqueda
+        # Inicializar el servicio de búsqueda mejorada
         self.search_service = SearchService(log_callback=self._add_log)
 
         # Inicializar el servicio de programación con referencia a la función de generación de reportes
@@ -77,7 +78,7 @@ class TopPanel:
         self.generate_report_btn = ttk.Button(
             self.button_frame,
             text="Generar Reporte",
-            command=self._generate_report
+            command=self._generate_report_with_updated_data
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
@@ -345,7 +346,7 @@ class TopPanel:
 
     def _run_search(self, profile):
         """
-        Ejecuta la búsqueda con todos los criterios del perfil seleccionado.
+        Ejecuta la búsqueda mejorada con todos los criterios del perfil seleccionado.
 
         Args:
             profile: Perfil de búsqueda con múltiples criterios
@@ -361,18 +362,18 @@ class TopPanel:
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"Ejecutando búsqueda: '{profile.name}' [{bot_type_text}] con {criterios_count} criterio(s){optimal_info}"
+                f"🔍 Ejecutando búsqueda mejorada: '{profile.name}' [{bot_type_text}] con {criterios_count} criterio(s){optimal_info}"
             )
 
-        # Ejecutar búsqueda real usando el servicio (ahora maneja múltiples criterios)
+        # Ejecutar búsqueda real usando el servicio mejorado (ahora maneja múltiples criterios con timestamp)
         total_found = self.search_service.search_emails(profile)
 
         # Actualizar resultados en el perfil
         self.profile_manager.update_search_results(profile.profile_id, total_found)
 
         # Log ampliado con información de éxito y tipo de bot
-        log_message = f"Búsqueda completada [{bot_type_text}]: {total_found} ejecuciones encontradas " \
-                      f"(suma de {criterios_count} criterios)"
+        log_message = f"✅ Búsqueda completada [{bot_type_text}]: {total_found} ejecuciones encontradas " \
+                      f"(suma de {criterios_count} criterios con verificación de timestamp)"
 
         if profile.track_optimal:
             success_percentage = profile.get_success_percentage()
@@ -389,7 +390,7 @@ class TopPanel:
         return total_found
 
     def _run_global_search(self):
-        """Ejecuta la búsqueda para todos los perfiles con todos sus criterios."""
+        """Ejecuta la búsqueda mejorada para todos los perfiles con todos sus criterios."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
@@ -404,7 +405,7 @@ class TopPanel:
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"Iniciando búsqueda global: {len(profiles)} perfiles ({automatic_bots} automáticos, {manual_bots} manuales), "
+                f"🚀 Iniciando búsqueda global mejorada: {len(profiles)} perfiles ({automatic_bots} automáticos, {manual_bots} manuales), "
                 f"{total_criterios} criterios, {len(tracking_profiles)} con seguimiento óptimo"
             )
 
@@ -424,10 +425,11 @@ class TopPanel:
         self._load_profiles()
 
         # Mensaje de resultado ampliado incluyendo tipos de bot
-        result_message = f"Se han procesado {profiles_searched} perfiles.\n" \
+        result_message = f"✅ Se han procesado {profiles_searched} perfiles.\n" \
                          f"Total de criterios buscados: {total_criterios}\n" \
                          f"Total de ejecuciones encontradas: {total_found}\n" \
-                         f"Tipos de bot: {automatic_bots} automáticos, {manual_bots} manuales"
+                         f"Tipos de bot: {automatic_bots} automáticos, {manual_bots} manuales\n" \
+                         f"Método: Búsqueda mejorada con verificación de timestamp"
 
         if tracking_profiles:
             result_message += f"\n\nSeguimiento óptimo:\n" \
@@ -439,61 +441,165 @@ class TopPanel:
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"✅ Búsqueda global completada: {total_found} ejecuciones "
+                f"✅ Búsqueda global mejorada completada: {total_found} ejecuciones "
                 f"({optimal_achieved}/{len(tracking_profiles)} perfiles óptimos, "
                 f"{automatic_bots} automáticos/{manual_bots} manuales)"
             )
 
-    def _generate_report(self):
-        """Genera y envía reporte Excel con información de perfiles, múltiples criterios, seguimiento óptimo y tipos de bot."""
+    def _generate_report_with_updated_data(self):
+        """
+        NUEVO: Genera reporte con datos actualizados ejecutando búsqueda global primero.
+        Garantiza que el reporte siempre tenga los datos más recientes.
+        """
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
             messagebox.showinfo("Información", "No hay perfiles para generar reporte.")
             return
 
-        # Obtener estadísticas mejoradas incluyendo tipos de bot
+        # Obtener estadísticas para el log inicial
         summary = self.profile_manager.get_profiles_summary()
         automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
         manual_bots = len([p for p in profiles if p.is_bot_manual()])
 
         if self.bottom_right_panel:
+            self.bottom_right_panel.add_log_entry("=" * 50)
+            self.bottom_right_panel.add_log_entry("📊 INICIANDO GENERACIÓN DE REPORTE CON DATOS ACTUALIZADOS")
+            self.bottom_right_panel.add_log_entry("=" * 50)
             self.bottom_right_panel.add_log_entry(
-                f"Iniciando generación de reporte: {summary['total_profiles']} perfiles "
+                f"📋 Estado inicial: {summary['total_profiles']} perfiles "
                 f"({automatic_bots} automáticos, {manual_bots} manuales), "
                 f"{summary['total_criteria']} criterios, {summary['profiles_with_tracking']} con seguimiento óptimo"
             )
 
         try:
-            # Generar archivo Excel
-            report_path = self.report_service.generate_profiles_report(profiles)
+            # PASO 1: Actualizar todos los datos ejecutando búsqueda global
+            self.bottom_right_panel.add_log_entry("🔄 PASO 1: Actualizando todos los datos de perfiles...")
 
-            if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry(f"Reporte generado con tipos de bot: {report_path}")
+            # Deshabilitar botón temporalmente para evitar clics múltiples
+            self.generate_report_btn.config(state="disabled", text="Actualizando...")
 
-            # Enviar por correo
+            # Forzar actualización de la interfaz
+            self.parent_frame.update()
+
+            # Ejecutar búsqueda global para actualizar todos los datos
+            self._run_global_search_silent()
+
+            # PASO 2: Generar reporte con datos actualizados
+            self.bottom_right_panel.add_log_entry("📊 PASO 2: Generando reporte Excel con datos actualizados...")
+
+            # Obtener estadísticas actualizadas
+            updated_summary = self.profile_manager.get_profiles_summary()
+            updated_profiles = self.profile_manager.get_all_profiles()
+            updated_automatic = len([p for p in updated_profiles if p.is_bot_automatic()])
+            updated_manual = len([p for p in updated_profiles if p.is_bot_manual()])
+
+            self.bottom_right_panel.add_log_entry(
+                f"📈 Datos actualizados: {updated_summary['total_emails_found']} ejecuciones totales, "
+                f"{updated_summary['profiles_with_tracking']} con seguimiento, "
+                f"{updated_summary['optimal_profiles']} alcanzaron óptimo"
+            )
+
+            # Generar archivo Excel con datos actualizados
+            report_path = self.report_service.generate_profiles_report(updated_profiles)
+
+            self.bottom_right_panel.add_log_entry(f"✅ Reporte actualizado generado: {report_path}")
+
+            # PASO 3: Enviar por correo
+            self.bottom_right_panel.add_log_entry("📧 PASO 3: Enviando reporte por correo...")
+
             success = self.email_service.send_report(report_path)
 
             if success:
-                if self.bottom_right_panel:
-                    self.bottom_right_panel.add_log_entry(
-                        "✅ Reporte con seguimiento óptimo y tipos de bot enviado por correo exitosamente"
-                    )
-                messagebox.showinfo("Éxito", "Reporte generado y enviado por correo correctamente.")
+                self.bottom_right_panel.add_log_entry("=" * 50)
+                self.bottom_right_panel.add_log_entry(
+                    "✅ REPORTE CON DATOS ACTUALIZADOS ENVIADO EXITOSAMENTE"
+                )
+                self.bottom_right_panel.add_log_entry(
+                    f"📊 Incluye: {updated_summary['profiles_with_tracking']} perfiles con seguimiento óptimo, "
+                    f"{updated_automatic} automáticos/{updated_manual} manuales, "
+                    f"verificación por timestamp"
+                )
+                self.bottom_right_panel.add_log_entry("=" * 50)
+
+                messagebox.showinfo(
+                    "✅ Reporte Actualizado Enviado",
+                    f"Reporte generado y enviado correctamente.\n\n"
+                    f"Datos incluidos:\n"
+                    f"• Total ejecuciones: {updated_summary['total_emails_found']}\n"
+                    f"• Perfiles óptimos: {updated_summary['optimal_profiles']}\n"
+                    f"• Bots automáticos: {updated_automatic}\n"
+                    f"• Bots manuales: {updated_manual}\n"
+                    f"• Búsqueda mejorada: Con verificación de timestamp"
+                )
             else:
-                if self.bottom_right_panel:
-                    self.bottom_right_panel.add_log_entry("❌ Error al enviar reporte por correo")
-                messagebox.showwarning("Advertencia",
-                                       "Reporte generado pero no se pudo enviar por correo.\nVerifica la configuración de email.")
+                self.bottom_right_panel.add_log_entry("❌ Error al enviar reporte por correo")
+                messagebox.showwarning(
+                    "Advertencia",
+                    "Reporte con datos actualizados generado pero no se pudo enviar por correo.\n"
+                    "Verifica la configuración de email."
+                )
 
         except Exception as e:
-            error_msg = f"Error al generar reporte: {e}"
-            if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry(error_msg)
+            error_msg = f"💥 Error al generar reporte actualizado: {e}"
+            self.bottom_right_panel.add_log_entry(error_msg)
             messagebox.showerror("Error", error_msg)
 
+        finally:
+            # Rehabilitar botón
+            self.generate_report_btn.config(state="normal", text="Generar Reporte")
+
+    def _run_global_search_silent(self):
+        """
+        Ejecuta búsqueda global silenciosa (sin mostrar messagebox al final) para actualización de datos.
+        Usado internamente antes de generar reportes.
+        """
+        profiles = self.profile_manager.get_all_profiles()
+
+        total_found = 0
+        profiles_searched = 0
+        optimal_achieved = 0
+
+        for profile in profiles:
+            found = self._run_search_silent(profile)
+            total_found += found
+            profiles_searched += 1
+
+            # Contar perfiles que alcanzaron el óptimo
+            if profile.is_success_optimal():
+                optimal_achieved += 1
+
+        self._load_profiles()
+
+        # Log sin messagebox
+        if self.bottom_right_panel:
+            self.bottom_right_panel.add_log_entry(
+                f"🔄 Actualización completa: {total_found} ejecuciones encontradas, "
+                f"{optimal_achieved} perfiles alcanzaron óptimo"
+            )
+
+        return total_found
+
+    def _run_search_silent(self, profile):
+        """
+        Ejecuta búsqueda sin logs detallados para actualización interna de datos.
+
+        Args:
+            profile: Perfil de búsqueda
+
+        Returns:
+            int: Número total de correos encontrados
+        """
+        # Ejecutar búsqueda real usando el servicio mejorado
+        total_found = self.search_service.search_emails(profile)
+
+        # Actualizar resultados en el perfil
+        self.profile_manager.update_search_results(profile.profile_id, total_found)
+
+        return total_found
+
     def _generate_scheduled_report(self):
-        """Genera y envía reporte programado sin interacción del usuario."""
+        """Genera y envía reporte programado sin interacción del usuario, con datos actualizados."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
@@ -504,33 +610,42 @@ class TopPanel:
         automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
         manual_bots = len([p for p in profiles if p.is_bot_manual()])
 
+        self._add_log("=" * 40)
+        self._add_log("📅 REPORTE PROGRAMADO INICIADO")
         self._add_log(
-            f"Iniciando reporte programado: {summary['total_profiles']} perfiles "
-            f"({automatic_bots} automáticos, {manual_bots} manuales), "
-            f"{summary['total_criteria']} criterios, {summary['profiles_with_tracking']} con seguimiento"
+            f"📋 Actualizando datos: {summary['total_profiles']} perfiles "
+            f"({automatic_bots} automáticos, {manual_bots} manuales)"
         )
 
         try:
-            # Generar archivo Excel
-            report_path = self.report_service.generate_profiles_report(profiles)
-            self._add_log(f"Reporte programado generado: {report_path}")
+            # Actualizar datos antes de generar reporte programado
+            self._add_log("🔄 Actualizando datos para reporte programado...")
+            total_updated = self._run_global_search_silent()
+
+            # Generar archivo Excel con datos actualizados
+            updated_profiles = self.profile_manager.get_all_profiles()
+            updated_summary = self.profile_manager.get_profiles_summary()
+
+            report_path = self.report_service.generate_profiles_report(updated_profiles)
+            self._add_log(f"📊 Reporte programado con datos actualizados: {report_path}")
 
             # Enviar por correo
             success = self.email_service.send_report(report_path)
 
             if success:
-                optimal_count = summary['optimal_profiles']
+                optimal_count = updated_summary['optimal_profiles']
                 self._add_log(
-                    f"✅ Reporte programado enviado ({optimal_count} perfiles óptimos, "
-                    f"{automatic_bots} automáticos/{manual_bots} manuales)"
+                    f"✅ Reporte programado enviado con datos actualizados "
+                    f"({optimal_count} perfiles óptimos, {total_updated} ejecuciones totales)"
                 )
+                self._add_log("=" * 40)
                 return True
             else:
                 self._add_log("❌ Error al enviar reporte programado por correo")
                 return False
 
         except Exception as e:
-            error_msg = f"Error al generar reporte programado: {e}"
+            error_msg = f"💥 Error al generar reporte programado: {e}"
             self._add_log(error_msg)
             return False
 
@@ -563,5 +678,7 @@ class TopPanel:
             "avg_success_percentage": summary['avg_success_percentage'],
             # NUEVAS MÉTRICAS: Tipos de bot
             "automatic_bots": automatic_bots,
-            "manual_bots": manual_bots
+            "manual_bots": manual_bots,
+            # Nueva métrica
+            "enhanced_search": True  # Indica que usa búsqueda mejorada
         }
