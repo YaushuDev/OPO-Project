@@ -15,6 +15,7 @@ from gui.components.scheduler_modal import SchedulerModal
 from services.report_service import ReportService
 from services.email_service import EmailService
 from services.scheduler_service import SchedulerService
+from services.search_service import SearchService
 
 
 class TopPanel:
@@ -33,6 +34,9 @@ class TopPanel:
         self.profile_manager = ProfileManager()
         self.report_service = ReportService()
         self.email_service = EmailService()
+
+        # Inicializar el servicio de búsqueda
+        self.search_service = SearchService(log_callback=self._add_log)
 
         # Inicializar el servicio de programación con referencia a la función de generación de reportes
         self.scheduler_service = SchedulerService(
@@ -59,7 +63,7 @@ class TopPanel:
         # Título del panel
         self.title_label = ttk.Label(
             self.header_frame,
-            text="🔎 PERFILES DE BÚSQUEDA",
+            text="🔍 PERFILES DE BÚSQUEDA",
             font=("Arial", 12, "bold")
         )
         self.title_label.grid(row=0, column=0, sticky="w", pady=5)
@@ -97,6 +101,14 @@ class TopPanel:
             command=self._open_new_profile_modal
         )
         self.new_btn.grid(row=0, column=3, padx=(0, 5))
+
+        # Botón para limpiar caché
+        self.clear_cache_btn = ttk.Button(
+            self.button_frame,
+            text="Limpiar Caché",
+            command=self._clear_search_cache
+        )
+        self.clear_cache_btn.grid(row=0, column=4, padx=(0, 5))
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -266,15 +278,22 @@ class TopPanel:
                 messagebox.showerror("Error", "No se pudo eliminar el perfil")
 
     def _run_search(self, profile):
-        """Ejecuta la búsqueda con el perfil seleccionado."""
+        """
+        Ejecuta la búsqueda con el perfil seleccionado.
+
+        Args:
+            profile: Perfil de búsqueda
+
+        Returns:
+            int: Número de correos encontrados
+        """
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(f"Ejecutando búsqueda con perfil: {profile.name}")
 
-        # Simulación de búsqueda
-        import random
-        found = random.randint(1, 20)
+        # Ejecutar búsqueda real usando el servicio
+        found = self.search_service.search_emails(profile)
 
-        # Actualizar resultados
+        # Actualizar resultados en el perfil
         self.profile_manager.update_search_results(profile.profile_id, found)
 
         if self.bottom_right_panel:
@@ -313,6 +332,20 @@ class TopPanel:
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(f"Búsqueda global completada. Total: {total_found} correos")
+
+    def _clear_search_cache(self):
+        """Limpia la caché de búsquedas."""
+        confirm = messagebox.askyesno(
+            "Confirmar acción",
+            "¿Estás seguro de limpiar la caché de búsquedas?\nEsto hará que las próximas búsquedas sean más lentas.",
+            icon=messagebox.WARNING
+        )
+
+        if confirm:
+            self.search_service.clear_cache()
+            if self.bottom_right_panel:
+                self.bottom_right_panel.add_log_entry("Caché de búsquedas limpiada")
+            messagebox.showinfo("Información", "Caché de búsquedas limpiada correctamente")
 
     def _generate_report(self):
         """Genera y envía reporte Excel con información de perfiles."""
