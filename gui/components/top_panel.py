@@ -11,8 +11,10 @@ import os
 from pathlib import Path
 from gui.models.profile_manager import ProfileManager
 from gui.components.profile_modal import ProfileModal
+from gui.components.scheduler_modal import SchedulerModal
 from services.report_service import ReportService
 from services.email_service import EmailService
+from services.scheduler_service import SchedulerService
 
 
 class TopPanel:
@@ -31,6 +33,13 @@ class TopPanel:
         self.profile_manager = ProfileManager()
         self.report_service = ReportService()
         self.email_service = EmailService()
+
+        # Inicializar el servicio de programación con referencia a la función de generación de reportes
+        self.scheduler_service = SchedulerService(
+            report_generator=self._generate_scheduled_report,
+            log_callback=self._add_log
+        )
+
         self._setup_widgets()
         self._load_profiles()
 
@@ -67,19 +76,27 @@ class TopPanel:
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
+        # Nuevo botón de programación
+        self.schedule_btn = ttk.Button(
+            self.button_frame,
+            text="Programar Envíos",
+            command=self._open_scheduler_modal
+        )
+        self.schedule_btn.grid(row=0, column=1, padx=(0, 5))
+
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
             command=self._run_global_search
         )
-        self.search_all_btn.grid(row=0, column=1, padx=(0, 5))
+        self.search_all_btn.grid(row=0, column=2, padx=(0, 5))
 
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=2, padx=(0, 5))
+        self.new_btn.grid(row=0, column=3, padx=(0, 5))
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -209,6 +226,17 @@ class TopPanel:
 
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
+    def _open_scheduler_modal(self):
+        """Abre el modal para configurar la programación de reportes."""
+        if self.bottom_right_panel:
+            self.bottom_right_panel.add_log_entry("Abriendo configuración de programación de reportes")
+
+        # Abrir modal de configuración
+        scheduler_modal = SchedulerModal(self.parent_frame, self.bottom_right_panel)
+
+        # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
+        self.parent_frame.after(500, self.scheduler_service.restart)
+
     def _edit_profile(self, profile):
         """Abre el modal para editar un perfil."""
         if self.bottom_right_panel:
@@ -322,6 +350,46 @@ class TopPanel:
             if self.bottom_right_panel:
                 self.bottom_right_panel.add_log_entry(error_msg)
             messagebox.showerror("Error", error_msg)
+
+    def _generate_scheduled_report(self):
+        """Genera y envía reporte programado sin interacción del usuario."""
+        profiles = self.profile_manager.get_all_profiles()
+
+        if not profiles:
+            self._add_log("No hay perfiles para generar reporte programado")
+            return False
+
+        self._add_log("Iniciando generación de reporte programado")
+
+        try:
+            # Generar archivo Excel
+            report_path = self.report_service.generate_profiles_report(profiles)
+            self._add_log(f"Reporte programado generado: {report_path}")
+
+            # Enviar por correo
+            success = self.email_service.send_report(report_path)
+
+            if success:
+                self._add_log("✅ Reporte programado enviado por correo exitosamente")
+                return True
+            else:
+                self._add_log("❌ Error al enviar reporte programado por correo")
+                return False
+
+        except Exception as e:
+            error_msg = f"Error al generar reporte programado: {e}"
+            self._add_log(error_msg)
+            return False
+
+    def _add_log(self, message):
+        """
+        Agrega mensaje al log.
+
+        Args:
+            message (str): Mensaje a agregar
+        """
+        if self.bottom_right_panel:
+            self.bottom_right_panel.add_log_entry(message)
 
     def get_data(self):
         """Retorna los datos actuales del panel."""
