@@ -2,7 +2,7 @@
 """
 Servicio para generar reportes Excel optimizados de perfiles de búsqueda.
 Crea archivos Excel con título general, información esencial de los perfiles,
-y seguimiento de ejecuciones óptimas con formato condicional verde.
+seguimiento de ejecuciones óptimas con formato condicional verde y tipo de bot.
 """
 
 import os
@@ -19,7 +19,7 @@ except ImportError:
 
 
 class ReportService:
-    """Servicio para generar reportes optimizados en formato Excel con seguimiento de ejecuciones óptimas."""
+    """Servicio para generar reportes optimizados en formato Excel con seguimiento de ejecuciones óptimas y tipo de bot."""
 
     def __init__(self):
         """Inicializa el servicio de reportes."""
@@ -29,7 +29,7 @@ class ReportService:
     def generate_profiles_report(self, profiles):
         """
         Genera un reporte Excel optimizado con título general e información esencial de perfiles,
-        incluyendo seguimiento de ejecuciones óptimas con colores condicionales.
+        incluyendo seguimiento de ejecuciones óptimas con colores condicionales y tipo de bot.
 
         Args:
             profiles (list): Lista de perfiles de búsqueda
@@ -53,10 +53,10 @@ class ReportService:
         worksheet = workbook.active
         worksheet.title = "Perfiles de Búsqueda"
 
-        # Configurar estilos
+        # Configurar estilos con colores aRGB corregidos
         # Estilo para título principal
         title_font = Font(bold=True, size=16, color="FFFFFF")
-        title_fill = PatternFill(start_color="2E5090", end_color="2E5090", fill_type="solid")
+        title_fill = PatternFill(start_color="FF2E5090", end_color="FF2E5090", fill_type="solid")
         title_alignment = Alignment(horizontal="center", vertical="center")
 
         # Estilo para subtítulo
@@ -65,12 +65,16 @@ class ReportService:
 
         # Estilo para encabezados de tabla
         header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_fill = PatternFill(start_color="FF366092", end_color="FF366092", fill_type="solid")
         header_alignment = Alignment(horizontal="center", vertical="center")
 
         # Estilo para éxito óptimo (verde)
-        success_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+        success_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
         success_font = Font(bold=True, color="006400")
+
+        # Estilos para tipos de bot con colores aRGB corregidos
+        bot_auto_fill = PatternFill(start_color="FFE6F3FF", end_color="FFE6F3FF", fill_type="solid")
+        bot_manual_fill = PatternFill(start_color="FFFFF2E6", end_color="FFFFF2E6", fill_type="solid")
 
         border_style = Side(border_style="thin", color="000000")
         border = Border(top=border_style, bottom=border_style, left=border_style, right=border_style)
@@ -78,7 +82,7 @@ class ReportService:
         # === AGREGAR TÍTULO GENERAL (FILAS 1 Y 2) ===
 
         # Fila 1: Título principal
-        worksheet.merge_cells('A1:E1')
+        worksheet.merge_cells('A1:G1')  # Extendido a columna G por las nuevas columnas
         title_cell = worksheet['A1']
         title_cell.value = "Reporte de Ejecuciones - Registro Diario"
         title_cell.font = title_font
@@ -87,7 +91,7 @@ class ReportService:
         title_cell.border = border
 
         # Aplicar borde a todas las celdas del título fusionado
-        for col in range(1, 6):  # A1 hasta E1
+        for col in range(1, 8):  # A1 hasta G1
             cell = worksheet.cell(row=1, column=col)
             cell.border = border
 
@@ -95,14 +99,14 @@ class ReportService:
         current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         total_bots = len(profiles)
 
-        worksheet.merge_cells('A2:E2')
+        worksheet.merge_cells('A2:G2')  # Extendido a columna G
         subtitle_cell = worksheet['A2']
         subtitle_cell.value = f"Generado el {current_date} - Total de Bots: {total_bots}"
         subtitle_cell.font = subtitle_font
         subtitle_cell.alignment = subtitle_alignment
 
         # Aplicar borde a todas las celdas del subtítulo fusionado
-        for col in range(1, 6):  # A2 hasta E2
+        for col in range(1, 8):  # A2 hasta G2
             cell = worksheet.cell(row=2, column=col)
             cell.border = border
 
@@ -115,6 +119,8 @@ class ReportService:
             "Cantidad de ejecuciones",
             "Ejecuciones Óptimas",
             "Porcentaje de Éxito",
+            "Bot Automático",      # NUEVA COLUMNA
+            "Bot Manual",          # NUEVA COLUMNA
             "Última Búsqueda"
         ]
 
@@ -159,8 +165,28 @@ class ReportService:
                 cell.font = success_font
                 cell.value = f"✅ {success_display}"
 
-            # Última Búsqueda
+            # NUEVA COLUMNA: Bot Automático
             cell = worksheet.cell(row=row_num, column=5)
+            if profile.is_bot_automatic():
+                cell.value = "✅"
+                cell.fill = bot_auto_fill
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = border
+
+            # NUEVA COLUMNA: Bot Manual
+            cell = worksheet.cell(row=row_num, column=6)
+            if profile.is_bot_manual():
+                cell.value = "✅"
+                cell.fill = bot_manual_fill
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = border
+
+            # Última Búsqueda
+            cell = worksheet.cell(row=row_num, column=7)  # Movido a columna 7
             if profile.last_search:
                 cell.value = profile.last_search.strftime("%d/%m/%Y %H:%M:%S")
             else:
@@ -172,9 +198,11 @@ class ReportService:
         column_widths = {
             1: 30,  # Nombre del Perfil
             2: 20,  # Cantidad de ejecuciones
-            3: 20,  # Ejecuciones Óptimas
+            3: 18,  # Ejecuciones Óptimas
             4: 18,  # Porcentaje de Éxito
-            5: 22  # Última Búsqueda
+            5: 15,  # Bot Automático (NUEVA)
+            6: 12,  # Bot Manual (NUEVA)
+            7: 22   # Última Búsqueda
         }
 
         for col_num, width in column_widths.items():
@@ -195,7 +223,7 @@ class ReportService:
 
     def _add_summary_sheet(self, worksheet, profiles):
         """
-        Agrega hoja de resumen optimizada al reporte incluyendo métricas de seguimiento óptimo.
+        Agrega hoja de resumen optimizada al reporte incluyendo métricas de seguimiento óptimo y tipos de bot.
 
         Args:
             worksheet: Hoja de trabajo de Excel
@@ -247,33 +275,55 @@ class ReportService:
             worksheet.cell(row=11, column=1).font = Font(bold=True)
             worksheet.cell(row=11, column=2).value = round(avg_executions, 2)
 
-        # NUEVAS MÉTRICAS DE SEGUIMIENTO ÓPTIMO
+        # NUEVA SECCIÓN: TIPOS DE BOT
+        automatic_bots = [p for p in profiles if p.is_bot_automatic()]
+        manual_bots = [p for p in profiles if p.is_bot_manual()]
+
+        worksheet.cell(row=13, column=1).value = "TIPOS DE BOT"
+        worksheet.cell(row=13, column=1).font = Font(bold=True, size=14, color="800080")
+
+        worksheet.cell(row=14, column=1).value = "Bots Automáticos:"
+        worksheet.cell(row=14, column=1).font = Font(bold=True)
+        worksheet.cell(row=14, column=2).value = len(automatic_bots)
+
+        worksheet.cell(row=15, column=1).value = "Bots Manuales:"
+        worksheet.cell(row=15, column=1).font = Font(bold=True)
+        worksheet.cell(row=15, column=2).value = len(manual_bots)
+
+        # Porcentaje de distribución
+        if profiles:
+            auto_percentage = (len(automatic_bots) / len(profiles)) * 100
+            worksheet.cell(row=16, column=1).value = "% Bots Automáticos:"
+            worksheet.cell(row=16, column=1).font = Font(bold=True)
+            worksheet.cell(row=16, column=2).value = f"{round(auto_percentage, 1)}%"
+
+        # MÉTRICAS DE SEGUIMIENTO ÓPTIMO
         profiles_with_tracking = [p for p in profiles if p.track_optimal]
         optimal_profiles = [p for p in profiles_with_tracking if p.is_success_optimal()]
 
         if profiles_with_tracking:
-            worksheet.cell(row=13, column=1).value = "SEGUIMIENTO DE EJECUCIONES ÓPTIMAS"
-            worksheet.cell(row=13, column=1).font = Font(bold=True, size=14, color="006400")
+            worksheet.cell(row=18, column=1).value = "SEGUIMIENTO DE EJECUCIONES ÓPTIMAS"
+            worksheet.cell(row=18, column=1).font = Font(bold=True, size=14, color="006400")
 
-            worksheet.cell(row=14, column=1).value = "Bots con seguimiento óptimo:"
-            worksheet.cell(row=14, column=1).font = Font(bold=True)
-            worksheet.cell(row=14, column=2).value = len(profiles_with_tracking)
+            worksheet.cell(row=19, column=1).value = "Bots con seguimiento óptimo:"
+            worksheet.cell(row=19, column=1).font = Font(bold=True)
+            worksheet.cell(row=19, column=2).value = len(profiles_with_tracking)
 
-            worksheet.cell(row=15, column=1).value = "Bots que alcanzaron el óptimo:"
-            worksheet.cell(row=15, column=1).font = Font(bold=True)
-            worksheet.cell(row=15, column=2).value = len(optimal_profiles)
+            worksheet.cell(row=20, column=1).value = "Bots que alcanzaron el óptimo:"
+            worksheet.cell(row=20, column=1).font = Font(bold=True)
+            worksheet.cell(row=20, column=2).value = len(optimal_profiles)
 
             # Tasa de éxito general
             success_rate = (len(optimal_profiles) / len(profiles_with_tracking)) * 100
-            worksheet.cell(row=16, column=1).value = "Tasa de éxito general:"
-            worksheet.cell(row=16, column=1).font = Font(bold=True)
-            worksheet.cell(row=16, column=2).value = f"{round(success_rate, 1)}%"
+            worksheet.cell(row=21, column=1).value = "Tasa de éxito general:"
+            worksheet.cell(row=21, column=1).font = Font(bold=True)
+            worksheet.cell(row=21, column=2).value = f"{round(success_rate, 1)}%"
 
             # Aplicar color verde si la tasa es alta
             if success_rate >= 80:
-                worksheet.cell(row=16, column=2).fill = PatternFill(start_color="90EE90", end_color="90EE90",
+                worksheet.cell(row=21, column=2).fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90",
                                                                     fill_type="solid")
-                worksheet.cell(row=16, column=2).font = Font(bold=True, color="006400")
+                worksheet.cell(row=21, column=2).font = Font(bold=True, color="006400")
 
             # Promedio de porcentaje de éxito
             success_percentages = []
@@ -284,13 +334,13 @@ class ReportService:
 
             if success_percentages:
                 avg_success = sum(success_percentages) / len(success_percentages)
-                worksheet.cell(row=17, column=1).value = "Promedio de porcentaje de éxito:"
-                worksheet.cell(row=17, column=1).font = Font(bold=True)
-                worksheet.cell(row=17, column=2).value = f"{round(avg_success, 1)}%"
+                worksheet.cell(row=22, column=1).value = "Promedio de porcentaje de éxito:"
+                worksheet.cell(row=22, column=1).font = Font(bold=True)
+                worksheet.cell(row=22, column=2).value = f"{round(avg_success, 1)}%"
 
-        # Top 3 bots más productivos (actualizado)
+        # Top 3 bots más productivos (actualizado con tipo de bot)
         if profiles:
-            start_row = 19 if profiles_with_tracking else 13
+            start_row = 24 if profiles_with_tracking else 18
             worksheet.cell(row=start_row, column=1).value = "TOP 3 BOTS MÁS PRODUCTIVOS"
             worksheet.cell(row=start_row, column=1).font = Font(bold=True, size=12, color="366092")
 
@@ -299,7 +349,8 @@ class ReportService:
 
             for i, profile in enumerate(sorted_profiles, 1):
                 row = start_row + i
-                profile_text = f"{i}. {profile.name}"
+                bot_type_icon = "🤖" if profile.is_bot_automatic() else "👤"
+                profile_text = f"{i}. {profile.name} {bot_type_icon}"
                 executions_text = f"{profile.found_emails} ejecuciones"
 
                 # Agregar información de éxito si está disponible
@@ -318,7 +369,7 @@ class ReportService:
         worksheet.column_dimensions['B'].width = 30
 
         # Agregar bordes a las celdas principales
-        max_row = 23 if profiles_with_tracking else 17
+        max_row = 28 if profiles_with_tracking else 22
         for row in range(1, max_row):
             for col in range(1, 3):
                 cell = worksheet.cell(row=row, column=col)

@@ -1,8 +1,8 @@
-# gui/components/profile_modal.py
+# profile_modal.py
 """
 Modal para crear o editar perfiles de búsqueda.
 Permite configurar nombre, hasta 3 criterios de búsqueda diferentes,
-y configuración de seguimiento de ejecuciones óptimas.
+configuración de seguimiento de ejecuciones óptimas y tipo de bot (Automático/Manual).
 """
 
 import tkinter as tk
@@ -10,7 +10,7 @@ from tkinter import ttk, messagebox
 
 
 class ProfileModal:
-    """Modal para gestionar perfiles de búsqueda con múltiples criterios y seguimiento óptimo."""
+    """Modal para gestionar perfiles de búsqueda con múltiples criterios, seguimiento óptimo y tipo de bot."""
 
     def __init__(self, parent, profile_manager, profile=None, callback=None):
         """
@@ -41,6 +41,9 @@ class ProfileModal:
         self.optimal_executions = tk.StringVar(
             value=str(profile.optimal_executions) if profile and profile.optimal_executions > 0 else "")
 
+        # NUEVA VARIABLE: Tipo de bot
+        self.bot_type = tk.StringVar(value=profile.bot_type if profile else "manual")
+
         # Cargar criterios existentes si estamos editando
         if profile and profile.search_criteria:
             if len(profile.search_criteria) >= 1:
@@ -53,7 +56,7 @@ class ProfileModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Editar Perfil" if self.edit_mode else "Nuevo Perfil")
-        self.modal.geometry("520x780")
+        self.modal.geometry("520x900")  # Aumenté la altura para el nuevo campo
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
@@ -149,8 +152,45 @@ class ProfileModal:
         criteria_3_entry.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(0, 20))
 
         # Separador visual
-        separator = ttk.Separator(main_frame, orient='horizontal')
-        separator.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        separator1 = ttk.Separator(main_frame, orient='horizontal')
+        separator1.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+
+        # NUEVA SECCIÓN: Tipo de Bot
+        bot_type_label = ttk.Label(
+            main_frame,
+            text="Tipo de Bot:",
+            font=("Arial", 11, "bold"),
+            foreground="purple"
+        )
+        bot_type_label.grid(row=11, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        # Frame para radio buttons del tipo de bot
+        bot_type_frame = ttk.Frame(main_frame)
+        bot_type_frame.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        bot_type_frame.columnconfigure(0, weight=1)
+        bot_type_frame.columnconfigure(1, weight=1)
+
+        # Radio button para Bot Automático
+        self.automatic_radio = ttk.Radiobutton(
+            bot_type_frame,
+            text="🤖 Bot Automático",
+            variable=self.bot_type,
+            value="automatico"
+        )
+        self.automatic_radio.grid(row=0, column=0, sticky="w", padx=(0, 20))
+
+        # Radio button para Bot Manual
+        self.manual_radio = ttk.Radiobutton(
+            bot_type_frame,
+            text="👤 Bot Manual",
+            variable=self.bot_type,
+            value="manual"
+        )
+        self.manual_radio.grid(row=0, column=1, sticky="w")
+
+        # Separador visual
+        separator2 = ttk.Separator(main_frame, orient='horizontal')
+        separator2.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
         # Sección de seguimiento óptimo
         optimal_label = ttk.Label(
@@ -159,7 +199,7 @@ class ProfileModal:
             font=("Arial", 11, "bold"),
             foreground="darkgreen"
         )
-        optimal_label.grid(row=11, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        optimal_label.grid(row=14, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Checkbox para habilitar seguimiento óptimo
         self.track_checkbox = ttk.Checkbutton(
@@ -168,14 +208,14 @@ class ProfileModal:
             variable=self.track_optimal,
             command=self._toggle_optimal_tracking
         )
-        self.track_checkbox.grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        self.track_checkbox.grid(row=15, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Campo para cantidad de ejecuciones óptimas
         ttk.Label(
             main_frame,
             text="Cantidad de Ejecuciones Óptimas:",
             font=("Arial", 10)
-        ).grid(row=13, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=16, column=0, sticky="w", pady=(0, 5))
 
         self.optimal_entry = ttk.Entry(
             main_frame,
@@ -183,7 +223,7 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        self.optimal_entry.grid(row=14, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        self.optimal_entry.grid(row=17, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         # Nota explicativa sobre criterios
         note_label = ttk.Label(
@@ -193,7 +233,17 @@ class ProfileModal:
             foreground="gray",
             justify="left"
         )
-        note_label.grid(row=15, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        note_label.grid(row=18, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        # Nota explicativa sobre tipo de bot
+        bot_note_label = ttk.Label(
+            main_frame,
+            text="🔧 Bot Automático: Se ejecuta automáticamente según programación\n👤 Bot Manual: Requiere ejecución manual por el usuario",
+            font=("Arial", 9),
+            foreground="purple",
+            justify="left"
+        )
+        bot_note_label.grid(row=19, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Nota explicativa sobre seguimiento óptimo
         optimal_note_label = ttk.Label(
@@ -203,11 +253,11 @@ class ProfileModal:
             foreground="darkgreen",
             justify="left"
         )
-        optimal_note_label.grid(row=16, column=0, columnspan=2, sticky="w", pady=(0, 20))
+        optimal_note_label.grid(row=20, column=0, columnspan=2, sticky="w", pady=(0, 20))
 
         # Botones
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=17, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=21, column=0, columnspan=2, sticky="ew")
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
@@ -249,8 +299,9 @@ class ProfileModal:
             self.optimal_executions.set("")  # Limpiar el campo cuando se deshabilite
 
     def _save_profile(self):
-        """Guarda o actualiza el perfil con los múltiples criterios y seguimiento óptimo."""
+        """Guarda o actualiza el perfil con los múltiples criterios, seguimiento óptimo y tipo de bot."""
         name = self.profile_name.get().strip()
+        bot_type = self.bot_type.get()
 
         # Recopilar criterios no vacíos
         criterios = []
@@ -275,6 +326,11 @@ class ProfileModal:
             messagebox.showerror("Error", "No puede haber criterios de búsqueda duplicados")
             return
 
+        # Validar que se haya seleccionado un tipo de bot
+        if not bot_type or bot_type not in ["automatico", "manual"]:
+            messagebox.showerror("Error", "Debe seleccionar un tipo de bot (Automático o Manual)")
+            return
+
         # Validar seguimiento óptimo si está habilitado
         optimal_value = 0
         if self.track_optimal.get():
@@ -296,7 +352,7 @@ class ProfileModal:
         try:
             if self.edit_mode:
                 # Actualizar perfil existente con nuevos campos
-                self.profile.update(name, criterios, optimal_value, self.track_optimal.get())
+                self.profile.update(name, criterios, optimal_value, self.track_optimal.get(), bot_type)
 
                 # Usar el profile_manager para guardar
                 updated_profile = self.profile_manager.update_profile(
@@ -307,9 +363,11 @@ class ProfileModal:
                     # Actualizar los campos nuevos manualmente ya que update_profile no los maneja
                     updated_profile.optimal_executions = optimal_value
                     updated_profile.track_optimal = self.track_optimal.get()
+                    updated_profile.bot_type = bot_type  # NUEVO CAMPO
                     self.profile_manager.save_profiles()
 
-                    mensaje = f"Perfil actualizado correctamente\n\nCriterios configurados: {len(criterios)}"
+                    bot_type_display = "Automático" if bot_type == "automatico" else "Manual"
+                    mensaje = f"Perfil actualizado correctamente\n\nCriterios configurados: {len(criterios)}\nTipo de bot: {bot_type_display}"
                     if self.track_optimal.get():
                         mensaje += f"\nSeguimiento óptimo: {optimal_value} ejecuciones"
                     messagebox.showinfo("Éxito", mensaje)
@@ -317,12 +375,14 @@ class ProfileModal:
                 # Crear nuevo perfil
                 new_profile = self.profile_manager.add_profile(name, criterios)
                 if new_profile:
-                    # Configurar seguimiento óptimo en el nuevo perfil
+                    # Configurar seguimiento óptimo y tipo de bot en el nuevo perfil
                     new_profile.optimal_executions = optimal_value
                     new_profile.track_optimal = self.track_optimal.get()
+                    new_profile.bot_type = bot_type  # NUEVO CAMPO
                     self.profile_manager.save_profiles()
 
-                    mensaje = f"Perfil creado correctamente\n\nCriterios configurados: {len(criterios)}"
+                    bot_type_display = "Automático" if bot_type == "automatico" else "Manual"
+                    mensaje = f"Perfil creado correctamente\n\nCriterios configurados: {len(criterios)}\nTipo de bot: {bot_type_display}"
                     if self.track_optimal.get():
                         mensaje += f"\nSeguimiento óptimo: {optimal_value} ejecuciones"
                     messagebox.showinfo("Éxito", mensaje)

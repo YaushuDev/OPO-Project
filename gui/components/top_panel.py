@@ -1,8 +1,8 @@
-# gui/components/top_panel.py
+# top_panel.py
 """
 Componente del panel superior del bot.
 Muestra perfiles de búsqueda de correos con múltiples criterios, seguimiento de ejecuciones
-óptimas con porcentajes de éxito y colores indicativos, y permite gestionarlos.
+óptimas con porcentajes de éxito y colores indicativos, tipo de bot (Automático/Manual) y permite gestionarlos.
 """
 
 import tkinter as tk
@@ -20,7 +20,7 @@ from services.search_service import SearchService
 
 
 class TopPanel:
-    """Maneja el contenido y funcionalidad del panel superior con perfiles de búsqueda múltiple y seguimiento óptimo."""
+    """Maneja el contenido y funcionalidad del panel superior con perfiles de búsqueda múltiple, seguimiento óptimo y tipo de bot."""
 
     def __init__(self, parent_frame, bottom_right_panel=None):
         """
@@ -109,31 +109,33 @@ class TopPanel:
         self.grid_frame.columnconfigure(0, weight=1)
         self.grid_frame.rowconfigure(0, weight=1)
 
-        # Crear Treeview para la tabla de perfiles con nuevas columnas
+        # Crear Treeview para la tabla de perfiles con nueva columna de tipo de bot
         self.profiles_tree = ttk.Treeview(
             self.grid_frame,
-            columns=("name", "criteria", "executions", "optimal", "success", "last_search", "actions"),
+            columns=("name", "bot_type", "criteria", "executions", "optimal", "success", "last_search", "actions"),
             show="headings",
             selectmode="browse"
         )
 
-        # Definir columnas con las nuevas columnas de seguimiento óptimo
+        # Definir columnas con la nueva columna de tipo de bot
         self.profiles_tree.heading("name", text="Nombre del Perfil")
+        self.profiles_tree.heading("bot_type", text="Tipo de Bot")  # NUEVA COLUMNA
         self.profiles_tree.heading("criteria", text="Criterios de Búsqueda")
-        self.profiles_tree.heading("executions", text="Cantidad de ejecuciones")  # Cambio de "Correos Encontrados"
-        self.profiles_tree.heading("optimal", text="Ejecuciones Óptimas")  # NUEVA COLUMNA
-        self.profiles_tree.heading("success", text="Porcentaje de Éxito")  # NUEVA COLUMNA
+        self.profiles_tree.heading("executions", text="Cantidad de ejecuciones")
+        self.profiles_tree.heading("optimal", text="Ejecuciones Óptimas")
+        self.profiles_tree.heading("success", text="Porcentaje de Éxito")
         self.profiles_tree.heading("last_search", text="Última Búsqueda")
         self.profiles_tree.heading("actions", text="Acciones")
 
-        # Configurar ancho de columnas (redistribuido para las nuevas columnas)
-        self.profiles_tree.column("name", width=120, minwidth=100)
-        self.profiles_tree.column("criteria", width=240, minwidth=200)  # Reducido para hacer espacio
-        self.profiles_tree.column("executions", width=110, minwidth=90, anchor="center")  # Renombrado
-        self.profiles_tree.column("optimal", width=110, minwidth=90, anchor="center")  # NUEVA
-        self.profiles_tree.column("success", width=110, minwidth=90, anchor="center")  # NUEVA
-        self.profiles_tree.column("last_search", width=130, minwidth=120, anchor="center")
-        self.profiles_tree.column("actions", width=80, minwidth=70, anchor="center")
+        # Configurar ancho de columnas (redistribuido para la nueva columna)
+        self.profiles_tree.column("name", width=110, minwidth=90)
+        self.profiles_tree.column("bot_type", width=90, minwidth=80, anchor="center")  # NUEVA COLUMNA
+        self.profiles_tree.column("criteria", width=200, minwidth=180)  # Reducido
+        self.profiles_tree.column("executions", width=100, minwidth=80, anchor="center")
+        self.profiles_tree.column("optimal", width=100, minwidth=80, anchor="center")
+        self.profiles_tree.column("success", width=100, minwidth=80, anchor="center")
+        self.profiles_tree.column("last_search", width=120, minwidth=100, anchor="center")
+        self.profiles_tree.column("actions", width=70, minwidth=60, anchor="center")
 
         # Colocar el Treeview
         self.profiles_tree.grid(row=0, column=0, sticky="nsew")
@@ -162,8 +164,9 @@ class TopPanel:
         self.empty_label = ttk.Label(
             self.grid_frame,
             text="No hay perfiles de búsqueda. Crea uno nuevo con el botón 'Nuevo Perfil'.\n"
-                 "Ahora puedes configurar hasta 3 criterios diferentes por perfil\n"
-                 "y hacer seguimiento de ejecuciones óptimas con porcentajes de éxito.",
+                 "Ahora puedes configurar hasta 3 criterios diferentes por perfil,\n"
+                 "hacer seguimiento de ejecuciones óptimas con porcentajes de éxito\n"
+                 "y elegir entre Bot Automático (🤖) o Bot Manual (👤).",
             font=("Arial", 11),
             foreground="gray",
             anchor="center",
@@ -171,7 +174,7 @@ class TopPanel:
         )
 
     def _load_profiles(self):
-        """Carga y muestra los perfiles con múltiples criterios y seguimiento óptimo en el grid."""
+        """Carga y muestra los perfiles con múltiples criterios, seguimiento óptimo y tipo de bot en el grid."""
         # Limpiar el grid actual
         for item in self.profiles_tree.get_children():
             self.profiles_tree.delete(item)
@@ -198,13 +201,17 @@ class TopPanel:
                 optimal_display = profile.get_optimal_display()
                 success_display = profile.get_success_display()
 
-                # Añadir fila a la tabla con las nuevas columnas
+                # NUEVA: Mostrar tipo de bot
+                bot_type_display = profile.get_bot_type_display()
+
+                # Añadir fila a la tabla con la nueva columna
                 item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
                     profile.name,
+                    bot_type_display,  # NUEVA COLUMNA: Tipo de bot
                     criteria_display,
-                    profile.found_emails,  # Cantidad de ejecuciones (antes "correos encontrados")
-                    optimal_display,  # NUEVA: Ejecuciones óptimas
-                    success_display,  # NUEVA: Porcentaje de éxito
+                    profile.found_emails,  # Cantidad de ejecuciones
+                    optimal_display,  # Ejecuciones óptimas
+                    success_display,  # Porcentaje de éxito
                     last_search,
                     "🗑️ Eliminar"
                 ))
@@ -221,19 +228,24 @@ class TopPanel:
                 self._add_log(f"Error al cargar perfil {profile.name}: {e}")
                 continue
 
-        # Mostrar estadísticas ampliadas en el log
+        # Mostrar estadísticas ampliadas en el log incluyendo tipos de bot
         if profiles and self.bottom_right_panel:
             summary = self.profile_manager.get_profiles_summary()
+
+            # Estadísticas de tipo de bot
+            automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
+            manual_bots = len([p for p in profiles if p.is_bot_manual()])
+
             self.bottom_right_panel.add_log_entry(
                 f"Perfiles cargados: {summary['total_profiles']} "
                 f"({summary['total_criteria']} criterios, "
-                f"{summary['profiles_with_tracking']} con seguimiento óptimo)"
+                f"{automatic_bots} automáticos, {manual_bots} manuales)"
             )
 
             if summary['profiles_with_tracking'] > 0:
                 self.bottom_right_panel.add_log_entry(
-                    f"Éxito promedio: {summary['avg_success_percentage']}% "
-                    f"({summary['optimal_profiles']} perfiles óptimos)"
+                    f"Seguimiento óptimo: {summary['profiles_with_tracking']} perfiles "
+                    f"({summary['optimal_profiles']} alcanzaron óptimo - {summary['avg_success_percentage']}% promedio)"
                 )
 
     def _on_tree_click(self, event):
@@ -247,8 +259,8 @@ class TopPanel:
             if not item:
                 return
 
-            # Si es la columna de acciones (7, antes era 5)
-            if column == "#7":
+            # Si es la columna de acciones (8, antes era 7)
+            if column == "#8":
                 profile_id = self.profiles_tree.item(item, "tags")[0]
                 profile = self.profile_manager.get_profile_by_id(profile_id)
 
@@ -270,7 +282,8 @@ class TopPanel:
     def _open_new_profile_modal(self):
         """Abre el modal para crear un nuevo perfil."""
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry("Creando nuevo perfil con múltiples criterios y seguimiento óptimo")
+            self.bottom_right_panel.add_log_entry(
+                "Creando nuevo perfil con múltiples criterios, seguimiento óptimo y tipo de bot")
 
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
@@ -289,9 +302,10 @@ class TopPanel:
         """Abre el modal para editar un perfil."""
         if self.bottom_right_panel:
             criterios_count = len(profile.search_criteria)
+            bot_type_text = "Automático" if profile.is_bot_automatic() else "Manual"
             optimal_text = f" (óptimo: {profile.optimal_executions})" if profile.track_optimal else ""
             self.bottom_right_panel.add_log_entry(
-                f"Editando perfil: {profile.name} ({criterios_count} criterios{optimal_text})"
+                f"Editando perfil: {profile.name} [{bot_type_text}] ({criterios_count} criterios{optimal_text})"
             )
 
         ProfileModal(
@@ -305,6 +319,7 @@ class TopPanel:
         """Elimina un perfil tras confirmación."""
         criterios_count = len(profile.search_criteria)
         criterios_text = "criterio" if criterios_count == 1 else "criterios"
+        bot_type_text = "Automático" if profile.is_bot_automatic() else "Manual"
 
         optimal_text = ""
         if profile.track_optimal:
@@ -313,6 +328,7 @@ class TopPanel:
         confirm = messagebox.askyesno(
             "Confirmar eliminación",
             f"¿Estás seguro de eliminar el perfil '{profile.name}'?\n"
+            f"Tipo de bot: {bot_type_text}\n"
             f"Se perderán {criterios_count} {criterios_text} de búsqueda.{optimal_text}",
             icon=messagebox.WARNING
         )
@@ -321,7 +337,7 @@ class TopPanel:
             if self.profile_manager.delete_profile(profile.profile_id):
                 if self.bottom_right_panel:
                     self.bottom_right_panel.add_log_entry(
-                        f"Perfil eliminado: {profile.name} ({criterios_count} criterios)"
+                        f"Perfil eliminado: {profile.name} [{bot_type_text}] ({criterios_count} criterios)"
                     )
                 self._load_profiles()
             else:
@@ -338,13 +354,14 @@ class TopPanel:
             int: Número total de correos encontrados (suma de todos los criterios)
         """
         criterios_count = len(profile.search_criteria)
+        bot_type_text = "Automático" if profile.is_bot_automatic() else "Manual"
         optimal_info = ""
         if profile.track_optimal:
             optimal_info = f" (óptimo: {profile.optimal_executions})"
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"Ejecutando búsqueda: '{profile.name}' con {criterios_count} criterio(s){optimal_info}"
+                f"Ejecutando búsqueda: '{profile.name}' [{bot_type_text}] con {criterios_count} criterio(s){optimal_info}"
             )
 
         # Ejecutar búsqueda real usando el servicio (ahora maneja múltiples criterios)
@@ -353,8 +370,8 @@ class TopPanel:
         # Actualizar resultados en el perfil
         self.profile_manager.update_search_results(profile.profile_id, total_found)
 
-        # Log ampliado con información de éxito
-        log_message = f"Búsqueda completada: {total_found} ejecuciones encontradas " \
+        # Log ampliado con información de éxito y tipo de bot
+        log_message = f"Búsqueda completada [{bot_type_text}]: {total_found} ejecuciones encontradas " \
                       f"(suma de {criterios_count} criterios)"
 
         if profile.track_optimal:
@@ -379,14 +396,16 @@ class TopPanel:
             messagebox.showinfo("Información", "No hay perfiles de búsqueda para ejecutar.")
             return
 
-        # Calcular total de criterios y perfiles con seguimiento
+        # Calcular estadísticas de tipos de bot
         total_criterios = sum(len(p.search_criteria) for p in profiles)
         tracking_profiles = [p for p in profiles if p.track_optimal]
+        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
+        manual_bots = len([p for p in profiles if p.is_bot_manual()])
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"Iniciando búsqueda global: {len(profiles)} perfiles, {total_criterios} criterios, "
-                f"{len(tracking_profiles)} con seguimiento óptimo"
+                f"Iniciando búsqueda global: {len(profiles)} perfiles ({automatic_bots} automáticos, {manual_bots} manuales), "
+                f"{total_criterios} criterios, {len(tracking_profiles)} con seguimiento óptimo"
             )
 
         total_found = 0
@@ -404,10 +423,11 @@ class TopPanel:
 
         self._load_profiles()
 
-        # Mensaje de resultado ampliado
+        # Mensaje de resultado ampliado incluyendo tipos de bot
         result_message = f"Se han procesado {profiles_searched} perfiles.\n" \
                          f"Total de criterios buscados: {total_criterios}\n" \
-                         f"Total de ejecuciones encontradas: {total_found}"
+                         f"Total de ejecuciones encontradas: {total_found}\n" \
+                         f"Tipos de bot: {automatic_bots} automáticos, {manual_bots} manuales"
 
         if tracking_profiles:
             result_message += f"\n\nSeguimiento óptimo:\n" \
@@ -418,26 +438,29 @@ class TopPanel:
         messagebox.showinfo("Búsqueda global completada", result_message)
 
         if self.bottom_right_panel:
-            summary = self.profile_manager.get_profiles_summary()
             self.bottom_right_panel.add_log_entry(
                 f"✅ Búsqueda global completada: {total_found} ejecuciones "
-                f"({optimal_achieved}/{len(tracking_profiles)} perfiles óptimos)"
+                f"({optimal_achieved}/{len(tracking_profiles)} perfiles óptimos, "
+                f"{automatic_bots} automáticos/{manual_bots} manuales)"
             )
 
     def _generate_report(self):
-        """Genera y envía reporte Excel con información de perfiles, múltiples criterios y seguimiento óptimo."""
+        """Genera y envía reporte Excel con información de perfiles, múltiples criterios, seguimiento óptimo y tipos de bot."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
             messagebox.showinfo("Información", "No hay perfiles para generar reporte.")
             return
 
-        # Obtener estadísticas mejoradas con seguimiento óptimo
+        # Obtener estadísticas mejoradas incluyendo tipos de bot
         summary = self.profile_manager.get_profiles_summary()
+        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
+        manual_bots = len([p for p in profiles if p.is_bot_manual()])
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"Iniciando generación de reporte: {summary['total_profiles']} perfiles, "
+                f"Iniciando generación de reporte: {summary['total_profiles']} perfiles "
+                f"({automatic_bots} automáticos, {manual_bots} manuales), "
                 f"{summary['total_criteria']} criterios, {summary['profiles_with_tracking']} con seguimiento óptimo"
             )
 
@@ -446,7 +469,7 @@ class TopPanel:
             report_path = self.report_service.generate_profiles_report(profiles)
 
             if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry(f"Reporte generado: {report_path}")
+                self.bottom_right_panel.add_log_entry(f"Reporte generado con tipos de bot: {report_path}")
 
             # Enviar por correo
             success = self.email_service.send_report(report_path)
@@ -454,7 +477,7 @@ class TopPanel:
             if success:
                 if self.bottom_right_panel:
                     self.bottom_right_panel.add_log_entry(
-                        "✅ Reporte con seguimiento óptimo enviado por correo exitosamente"
+                        "✅ Reporte con seguimiento óptimo y tipos de bot enviado por correo exitosamente"
                     )
                 messagebox.showinfo("Éxito", "Reporte generado y enviado por correo correctamente.")
             else:
@@ -478,8 +501,12 @@ class TopPanel:
             return False
 
         summary = self.profile_manager.get_profiles_summary()
+        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
+        manual_bots = len([p for p in profiles if p.is_bot_manual()])
+
         self._add_log(
-            f"Iniciando reporte programado: {summary['total_profiles']} perfiles, "
+            f"Iniciando reporte programado: {summary['total_profiles']} perfiles "
+            f"({automatic_bots} automáticos, {manual_bots} manuales), "
             f"{summary['total_criteria']} criterios, {summary['profiles_with_tracking']} con seguimiento"
         )
 
@@ -493,7 +520,10 @@ class TopPanel:
 
             if success:
                 optimal_count = summary['optimal_profiles']
-                self._add_log(f"✅ Reporte programado enviado ({optimal_count} perfiles óptimos)")
+                self._add_log(
+                    f"✅ Reporte programado enviado ({optimal_count} perfiles óptimos, "
+                    f"{automatic_bots} automáticos/{manual_bots} manuales)"
+                )
                 return True
             else:
                 self._add_log("❌ Error al enviar reporte programado por correo")
@@ -515,16 +545,23 @@ class TopPanel:
             self.bottom_right_panel.add_log_entry(message)
 
     def get_data(self):
-        """Retorna los datos actuales del panel con información de múltiples criterios y seguimiento óptimo."""
+        """Retorna los datos actuales del panel con información de múltiples criterios, seguimiento óptimo y tipos de bot."""
         summary = self.profile_manager.get_profiles_summary()
+        profiles = self.profile_manager.get_all_profiles()
+        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
+        manual_bots = len([p for p in profiles if p.is_bot_manual()])
+
         return {
             "panel_type": "top_panel",
             "profiles_count": summary['total_profiles'],
             "total_criteria": summary['total_criteria'],
             "active_profiles": summary['active_profiles'],
             "total_emails_found": summary['total_emails_found'],
-            # Nuevas métricas
+            # Métricas de seguimiento óptimo
             "profiles_with_tracking": summary['profiles_with_tracking'],
             "optimal_profiles": summary['optimal_profiles'],
-            "avg_success_percentage": summary['avg_success_percentage']
+            "avg_success_percentage": summary['avg_success_percentage'],
+            # NUEVAS MÉTRICAS: Tipos de bot
+            "automatic_bots": automatic_bots,
+            "manual_bots": manual_bots
         }

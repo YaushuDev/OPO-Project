@@ -1,8 +1,8 @@
-# gui/models/search_profile.py
+# search_profile.py
 """
 Modelo para representar un perfil de búsqueda de correos.
 Contiene información sobre múltiples criterios de búsqueda (hasta 3), resultados,
-y seguimiento de ejecuciones óptimas con porcentaje de éxito.
+seguimiento de ejecuciones óptimas con porcentaje de éxito y tipo de bot (Automático/Manual).
 """
 
 import json
@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 class SearchProfile:
-    """Representa un perfil de búsqueda de correos electrónicos con múltiples criterios y seguimiento óptimo."""
+    """Representa un perfil de búsqueda de correos electrónicos con múltiples criterios, seguimiento óptimo y tipo de bot."""
 
     def __init__(self, name, search_criteria, profile_id=None):
         """
@@ -39,16 +39,19 @@ class SearchProfile:
         self.found_emails = 0  # Ahora representa "Cantidad de ejecuciones"
         self.last_search = None
 
-        # Nuevos campos para seguimiento óptimo
+        # Campos para seguimiento óptimo
         self.optimal_executions = 0  # Cantidad de ejecuciones óptimas
         self.track_optimal = False  # Habilitar/deshabilitar seguimiento óptimo
+
+        # NUEVO CAMPO: Tipo de bot (automático o manual)
+        self.bot_type = "manual"  # Valor por defecto
 
     def to_dict(self):
         """
         Convierte el perfil a un diccionario para serialización.
 
         Returns:
-            dict: Diccionario con los datos del perfil incluyendo campos nuevos
+            dict: Diccionario con los datos del perfil incluyendo el tipo de bot
         """
         return {
             "profile_id": self.profile_id,
@@ -56,9 +59,11 @@ class SearchProfile:
             "search_criteria": self.search_criteria,
             "found_emails": self.found_emails,
             "last_search": self.last_search.isoformat() if self.last_search else None,
-            # Nuevos campos
+            # Campos de seguimiento óptimo
             "optimal_executions": self.optimal_executions,
-            "track_optimal": self.track_optimal
+            "track_optimal": self.track_optimal,
+            # NUEVO CAMPO: Tipo de bot
+            "bot_type": self.bot_type
         }
 
     @classmethod
@@ -97,21 +102,25 @@ class SearchProfile:
             except (ValueError, TypeError):
                 profile.last_search = None
 
-        # Cargar nuevos campos con compatibilidad hacia atrás
+        # Cargar campos de seguimiento óptimo con compatibilidad hacia atrás
         profile.optimal_executions = data.get("optimal_executions", 0)
         profile.track_optimal = data.get("track_optimal", False)
 
+        # NUEVO CAMPO: Cargar tipo de bot con compatibilidad hacia atrás
+        profile.bot_type = data.get("bot_type", "manual")  # Por defecto "manual" para perfiles existentes
+
         return profile
 
-    def update(self, name, search_criteria, optimal_executions=None, track_optimal=None):
+    def update(self, name, search_criteria, optimal_executions=None, track_optimal=None, bot_type=None):
         """
-        Actualiza los datos del perfil incluyendo campos de seguimiento óptimo.
+        Actualiza los datos del perfil incluyendo campos de seguimiento óptimo y tipo de bot.
 
         Args:
             name (str): Nuevo nombre
             search_criteria (str or list): Nuevo(s) criterio(s) de búsqueda
             optimal_executions (int, optional): Cantidad de ejecuciones óptimas
             track_optimal (bool, optional): Habilitar seguimiento óptimo
+            bot_type (str, optional): Tipo de bot ("automatico" o "manual")
         """
         self.name = name
 
@@ -129,6 +138,10 @@ class SearchProfile:
 
         if track_optimal is not None:
             self.track_optimal = track_optimal
+
+        # NUEVO: Actualizar tipo de bot si se proporciona
+        if bot_type is not None:
+            self.bot_type = bot_type
 
     def update_search_results(self, found_emails):
         """
@@ -213,3 +226,35 @@ class SearchProfile:
             return "N/A"
 
         return f"{percentage}%"
+
+    def get_bot_type_display(self):
+        """
+        Retorna una representación del tipo de bot para mostrar.
+
+        Returns:
+            str: Tipo de bot formateado para mostrar
+        """
+        if self.bot_type == "automatico":
+            return "🤖 Automático"
+        elif self.bot_type == "manual":
+            return "👤 Manual"
+        else:
+            return "❓ No definido"
+
+    def is_bot_automatic(self):
+        """
+        Verifica si el bot es de tipo automático.
+
+        Returns:
+            bool: True si es automático, False si no
+        """
+        return self.bot_type == "automatico"
+
+    def is_bot_manual(self):
+        """
+        Verifica si el bot es de tipo manual.
+
+        Returns:
+            bool: True si es manual, False si no
+        """
+        return self.bot_type == "manual"
