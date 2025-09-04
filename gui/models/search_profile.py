@@ -1,7 +1,8 @@
 # gui/models/search_profile.py
 """
 Modelo para representar un perfil de búsqueda de correos.
-Contiene información sobre múltiples criterios de búsqueda (hasta 3) y resultados.
+Contiene información sobre múltiples criterios de búsqueda (hasta 3), resultados,
+y seguimiento de ejecuciones óptimas con porcentaje de éxito.
 """
 
 import json
@@ -11,7 +12,7 @@ from pathlib import Path
 
 
 class SearchProfile:
-    """Representa un perfil de búsqueda de correos electrónicos con múltiples criterios."""
+    """Representa un perfil de búsqueda de correos electrónicos con múltiples criterios y seguimiento óptimo."""
 
     def __init__(self, name, search_criteria, profile_id=None):
         """
@@ -34,22 +35,30 @@ class SearchProfile:
         else:
             self.search_criteria = []
 
-        self.found_emails = 0
+        # Campos originales
+        self.found_emails = 0  # Ahora representa "Cantidad de ejecuciones"
         self.last_search = None
+
+        # Nuevos campos para seguimiento óptimo
+        self.optimal_executions = 0  # Cantidad de ejecuciones óptimas
+        self.track_optimal = False  # Habilitar/deshabilitar seguimiento óptimo
 
     def to_dict(self):
         """
         Convierte el perfil a un diccionario para serialización.
 
         Returns:
-            dict: Diccionario con los datos del perfil
+            dict: Diccionario con los datos del perfil incluyendo campos nuevos
         """
         return {
             "profile_id": self.profile_id,
             "name": self.name,
-            "search_criteria": self.search_criteria,  # Ahora es lista
+            "search_criteria": self.search_criteria,
             "found_emails": self.found_emails,
-            "last_search": self.last_search.isoformat() if self.last_search else None
+            "last_search": self.last_search.isoformat() if self.last_search else None,
+            # Nuevos campos
+            "optimal_executions": self.optimal_executions,
+            "track_optimal": self.track_optimal
         }
 
     @classmethod
@@ -57,6 +66,7 @@ class SearchProfile:
         """
         Crea una instancia de perfil a partir de un diccionario.
         Mantiene compatibilidad con formato antiguo (string) y nuevo (lista).
+        Incluye compatibilidad hacia atrás para perfiles sin campos nuevos.
 
         Args:
             data (dict): Diccionario con los datos del perfil
@@ -87,15 +97,21 @@ class SearchProfile:
             except (ValueError, TypeError):
                 profile.last_search = None
 
+        # Cargar nuevos campos con compatibilidad hacia atrás
+        profile.optimal_executions = data.get("optimal_executions", 0)
+        profile.track_optimal = data.get("track_optimal", False)
+
         return profile
 
-    def update(self, name, search_criteria):
+    def update(self, name, search_criteria, optimal_executions=None, track_optimal=None):
         """
-        Actualiza los datos del perfil.
+        Actualiza los datos del perfil incluyendo campos de seguimiento óptimo.
 
         Args:
             name (str): Nuevo nombre
             search_criteria (str or list): Nuevo(s) criterio(s) de búsqueda
+            optimal_executions (int, optional): Cantidad de ejecuciones óptimas
+            track_optimal (bool, optional): Habilitar seguimiento óptimo
         """
         self.name = name
 
@@ -107,12 +123,19 @@ class SearchProfile:
         else:
             self.search_criteria = []
 
+        # Actualizar campos de seguimiento óptimo si se proporcionan
+        if optimal_executions is not None:
+            self.optimal_executions = max(0, int(optimal_executions))
+
+        if track_optimal is not None:
+            self.track_optimal = track_optimal
+
     def update_search_results(self, found_emails):
         """
-        Actualiza los resultados de búsqueda.
+        Actualiza los resultados de búsqueda (cantidad de ejecuciones).
 
         Args:
-            found_emails (int): Número de correos encontrados
+            found_emails (int): Número de correos encontrados (cantidad de ejecuciones)
         """
         self.found_emails = found_emails
         self.last_search = datetime.now()
@@ -139,3 +162,54 @@ class SearchProfile:
             bool: True si tiene criterios válidos
         """
         return len(self.search_criteria) > 0
+
+    def get_success_percentage(self):
+        """
+        Calcula el porcentaje de éxito basado en ejecuciones óptimas.
+
+        Returns:
+            float: Porcentaje de éxito (0-100+) o None si no está habilitado el seguimiento
+        """
+        if not self.track_optimal or self.optimal_executions <= 0:
+            return None
+
+        return round((self.found_emails / self.optimal_executions) * 100, 1)
+
+    def is_success_optimal(self):
+        """
+        Verifica si el perfil ha alcanzado el éxito óptimo (≥100%).
+
+        Returns:
+            bool: True si el porcentaje de éxito es >= 100%, False si no está habilitado o es menor
+        """
+        percentage = self.get_success_percentage()
+        return percentage is not None and percentage >= 100.0
+
+    def get_optimal_display(self):
+        """
+        Retorna una representación de las ejecuciones óptimas para mostrar.
+
+        Returns:
+            str: Texto formateado para mostrar ejecuciones óptimas
+        """
+        if not self.track_optimal:
+            return "Deshabilitado"
+
+        if self.optimal_executions <= 0:
+            return "No configurado"
+
+        return str(self.optimal_executions)
+
+    def get_success_display(self):
+        """
+        Retorna una representación del porcentaje de éxito para mostrar.
+
+        Returns:
+            str: Texto formateado para mostrar porcentaje de éxito
+        """
+        percentage = self.get_success_percentage()
+
+        if percentage is None:
+            return "N/A"
+
+        return f"{percentage}%"

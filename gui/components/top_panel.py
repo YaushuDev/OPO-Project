@@ -1,7 +1,8 @@
 # gui/components/top_panel.py
 """
 Componente del panel superior del bot.
-Muestra perfiles de búsqueda de correos con múltiples criterios y permite gestionarlos.
+Muestra perfiles de búsqueda de correos con múltiples criterios, seguimiento de ejecuciones
+óptimas con porcentajes de éxito y colores indicativos, y permite gestionarlos.
 """
 
 import tkinter as tk
@@ -19,7 +20,7 @@ from services.search_service import SearchService
 
 
 class TopPanel:
-    """Maneja el contenido y funcionalidad del panel superior con perfiles de búsqueda múltiple."""
+    """Maneja el contenido y funcionalidad del panel superior con perfiles de búsqueda múltiple y seguimiento óptimo."""
 
     def __init__(self, parent_frame, bottom_right_panel=None):
         """
@@ -63,7 +64,7 @@ class TopPanel:
         # Título del panel
         self.title_label = ttk.Label(
             self.header_frame,
-            text="🔍 PERFILES DE BÚSQUEDA",
+            text="📋 PERFILES DE BÚSQUEDA",
             font=("Arial", 12, "bold")
         )
         self.title_label.grid(row=0, column=0, sticky="w", pady=5)
@@ -108,27 +109,31 @@ class TopPanel:
         self.grid_frame.columnconfigure(0, weight=1)
         self.grid_frame.rowconfigure(0, weight=1)
 
-        # Crear Treeview para la tabla de perfiles
+        # Crear Treeview para la tabla de perfiles con nuevas columnas
         self.profiles_tree = ttk.Treeview(
             self.grid_frame,
-            columns=("name", "criteria", "found", "last_search", "actions"),
+            columns=("name", "criteria", "executions", "optimal", "success", "last_search", "actions"),
             show="headings",
             selectmode="browse"
         )
 
-        # Definir columnas con mejor distribución para múltiples criterios
+        # Definir columnas con las nuevas columnas de seguimiento óptimo
         self.profiles_tree.heading("name", text="Nombre del Perfil")
         self.profiles_tree.heading("criteria", text="Criterios de Búsqueda")
-        self.profiles_tree.heading("found", text="Correos Encontrados")
+        self.profiles_tree.heading("executions", text="Cantidad de ejecuciones")  # Cambio de "Correos Encontrados"
+        self.profiles_tree.heading("optimal", text="Ejecuciones Óptimas")  # NUEVA COLUMNA
+        self.profiles_tree.heading("success", text="Porcentaje de Éxito")  # NUEVA COLUMNA
         self.profiles_tree.heading("last_search", text="Última Búsqueda")
         self.profiles_tree.heading("actions", text="Acciones")
 
-        # Configurar ancho de columnas (ajustado para criterios múltiples)
-        self.profiles_tree.column("name", width=140, minwidth=100)
-        self.profiles_tree.column("criteria", width=280, minwidth=200)  # Más ancho para múltiples criterios
-        self.profiles_tree.column("found", width=130, minwidth=100, anchor="center")
-        self.profiles_tree.column("last_search", width=140, minwidth=120, anchor="center")
-        self.profiles_tree.column("actions", width=100, minwidth=80, anchor="center")
+        # Configurar ancho de columnas (redistribuido para las nuevas columnas)
+        self.profiles_tree.column("name", width=120, minwidth=100)
+        self.profiles_tree.column("criteria", width=240, minwidth=200)  # Reducido para hacer espacio
+        self.profiles_tree.column("executions", width=110, minwidth=90, anchor="center")  # Renombrado
+        self.profiles_tree.column("optimal", width=110, minwidth=90, anchor="center")  # NUEVA
+        self.profiles_tree.column("success", width=110, minwidth=90, anchor="center")  # NUEVA
+        self.profiles_tree.column("last_search", width=130, minwidth=120, anchor="center")
+        self.profiles_tree.column("actions", width=80, minwidth=70, anchor="center")
 
         # Colocar el Treeview
         self.profiles_tree.grid(row=0, column=0, sticky="nsew")
@@ -143,6 +148,12 @@ class TopPanel:
         hsb.grid(row=1, column=0, sticky="ew")
         self.profiles_tree.configure(xscrollcommand=hsb.set)
 
+        # Configurar estilos para el Treeview (colores para éxito óptimo)
+        style = ttk.Style()
+
+        # Estilo para filas con éxito óptimo (verde)
+        style.configure("Success.Treeview", background="#e8f5e8", foreground="darkgreen")
+
         # Enlazar eventos
         self.profiles_tree.bind("<Double-1>", self._on_tree_double_click)
         self.profiles_tree.bind("<ButtonRelease-1>", self._on_tree_click)
@@ -151,7 +162,8 @@ class TopPanel:
         self.empty_label = ttk.Label(
             self.grid_frame,
             text="No hay perfiles de búsqueda. Crea uno nuevo con el botón 'Nuevo Perfil'.\n"
-                 "Ahora puedes configurar hasta 3 criterios diferentes por perfil.",
+                 "Ahora puedes configurar hasta 3 criterios diferentes por perfil\n"
+                 "y hacer seguimiento de ejecuciones óptimas con porcentajes de éxito.",
             font=("Arial", 11),
             foreground="gray",
             anchor="center",
@@ -159,7 +171,7 @@ class TopPanel:
         )
 
     def _load_profiles(self):
-        """Carga y muestra los perfiles con múltiples criterios en el grid."""
+        """Carga y muestra los perfiles con múltiples criterios y seguimiento óptimo en el grid."""
         # Limpiar el grid actual
         for item in self.profiles_tree.get_children():
             self.profiles_tree.delete(item)
@@ -182,11 +194,17 @@ class TopPanel:
                 # Usar el método get_criteria_display() para mostrar criterios de manera legible
                 criteria_display = profile.get_criteria_display()
 
-                # Añadir fila a la tabla
+                # Mostrar información de seguimiento óptimo
+                optimal_display = profile.get_optimal_display()
+                success_display = profile.get_success_display()
+
+                # Añadir fila a la tabla con las nuevas columnas
                 item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
                     profile.name,
-                    criteria_display,  # Ahora muestra múltiples criterios de forma legible
-                    profile.found_emails,
+                    criteria_display,
+                    profile.found_emails,  # Cantidad de ejecuciones (antes "correos encontrados")
+                    optimal_display,  # NUEVA: Ejecuciones óptimas
+                    success_display,  # NUEVA: Porcentaje de éxito
                     last_search,
                     "🗑️ Eliminar"
                 ))
@@ -194,17 +212,29 @@ class TopPanel:
                 # Guardar el profile_id como tag
                 self.profiles_tree.item(item_id, tags=(profile.profile_id,))
 
+                # Aplicar color verde si tiene éxito óptimo
+                if profile.is_success_optimal():
+                    # Configurar fondo verde para toda la fila
+                    self.profiles_tree.set(item_id, "success", f"✅ {success_display}")
+
             except Exception as e:
                 self._add_log(f"Error al cargar perfil {profile.name}: {e}")
                 continue
 
-        # Mostrar estadísticas en el log
+        # Mostrar estadísticas ampliadas en el log
         if profiles and self.bottom_right_panel:
             summary = self.profile_manager.get_profiles_summary()
             self.bottom_right_panel.add_log_entry(
                 f"Perfiles cargados: {summary['total_profiles']} "
-                f"({summary['total_criteria']} criterios total)"
+                f"({summary['total_criteria']} criterios, "
+                f"{summary['profiles_with_tracking']} con seguimiento óptimo)"
             )
+
+            if summary['profiles_with_tracking'] > 0:
+                self.bottom_right_panel.add_log_entry(
+                    f"Éxito promedio: {summary['avg_success_percentage']}% "
+                    f"({summary['optimal_profiles']} perfiles óptimos)"
+                )
 
     def _on_tree_click(self, event):
         """Maneja los clics en el árbol para la acción de eliminar."""
@@ -217,8 +247,8 @@ class TopPanel:
             if not item:
                 return
 
-            # Si es la columna de acciones (5)
-            if column == "#5":
+            # Si es la columna de acciones (7, antes era 5)
+            if column == "#7":
                 profile_id = self.profiles_tree.item(item, "tags")[0]
                 profile = self.profile_manager.get_profile_by_id(profile_id)
 
@@ -240,7 +270,7 @@ class TopPanel:
     def _open_new_profile_modal(self):
         """Abre el modal para crear un nuevo perfil."""
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry("Creando nuevo perfil con múltiples criterios")
+            self.bottom_right_panel.add_log_entry("Creando nuevo perfil con múltiples criterios y seguimiento óptimo")
 
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
@@ -259,8 +289,9 @@ class TopPanel:
         """Abre el modal para editar un perfil."""
         if self.bottom_right_panel:
             criterios_count = len(profile.search_criteria)
+            optimal_text = f" (óptimo: {profile.optimal_executions})" if profile.track_optimal else ""
             self.bottom_right_panel.add_log_entry(
-                f"Editando perfil: {profile.name} ({criterios_count} criterios)"
+                f"Editando perfil: {profile.name} ({criterios_count} criterios{optimal_text})"
             )
 
         ProfileModal(
@@ -275,10 +306,14 @@ class TopPanel:
         criterios_count = len(profile.search_criteria)
         criterios_text = "criterio" if criterios_count == 1 else "criterios"
 
+        optimal_text = ""
+        if profile.track_optimal:
+            optimal_text = f"\nSeguimiento óptimo: {profile.optimal_executions} ejecuciones"
+
         confirm = messagebox.askyesno(
             "Confirmar eliminación",
             f"¿Estás seguro de eliminar el perfil '{profile.name}'?\n"
-            f"Se perderán {criterios_count} {criterios_text} de búsqueda.",
+            f"Se perderán {criterios_count} {criterios_text} de búsqueda.{optimal_text}",
             icon=messagebox.WARNING
         )
 
@@ -303,9 +338,13 @@ class TopPanel:
             int: Número total de correos encontrados (suma de todos los criterios)
         """
         criterios_count = len(profile.search_criteria)
+        optimal_info = ""
+        if profile.track_optimal:
+            optimal_info = f" (óptimo: {profile.optimal_executions})"
+
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"Ejecutando búsqueda: '{profile.name}' con {criterios_count} criterio(s)"
+                f"Ejecutando búsqueda: '{profile.name}' con {criterios_count} criterio(s){optimal_info}"
             )
 
         # Ejecutar búsqueda real usando el servicio (ahora maneja múltiples criterios)
@@ -314,11 +353,19 @@ class TopPanel:
         # Actualizar resultados en el perfil
         self.profile_manager.update_search_results(profile.profile_id, total_found)
 
+        # Log ampliado con información de éxito
+        log_message = f"Búsqueda completada: {total_found} ejecuciones encontradas " \
+                      f"(suma de {criterios_count} criterios)"
+
+        if profile.track_optimal:
+            success_percentage = profile.get_success_percentage()
+            if success_percentage is not None:
+                log_message += f" - Éxito: {success_percentage}%"
+                if profile.is_success_optimal():
+                    log_message += " ✅ ÓPTIMO"
+
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(
-                f"Búsqueda completada: {total_found} correos encontrados "
-                f"(suma de {criterios_count} criterios)"
-            )
+            self.bottom_right_panel.add_log_entry(log_message)
 
         # Actualizar el grid
         self._load_profiles()
@@ -332,52 +379,66 @@ class TopPanel:
             messagebox.showinfo("Información", "No hay perfiles de búsqueda para ejecutar.")
             return
 
-        # Calcular total de criterios para mostrar progreso
+        # Calcular total de criterios y perfiles con seguimiento
         total_criterios = sum(len(p.search_criteria) for p in profiles)
+        tracking_profiles = [p for p in profiles if p.track_optimal]
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
-                f"Iniciando búsqueda global: {len(profiles)} perfiles, {total_criterios} criterios total"
+                f"Iniciando búsqueda global: {len(profiles)} perfiles, {total_criterios} criterios, "
+                f"{len(tracking_profiles)} con seguimiento óptimo"
             )
 
         total_found = 0
         profiles_searched = 0
+        optimal_achieved = 0
 
         for profile in profiles:
             found = self._run_search(profile)
             total_found += found
             profiles_searched += 1
 
+            # Contar perfiles que alcanzaron el óptimo
+            if profile.is_success_optimal():
+                optimal_achieved += 1
+
         self._load_profiles()
 
-        messagebox.showinfo(
-            "Búsqueda global completada",
-            f"Se han procesado {profiles_searched} perfiles.\n"
-            f"Total de criterios buscados: {total_criterios}\n"
-            f"Total de correos encontrados: {total_found}."
-        )
+        # Mensaje de resultado ampliado
+        result_message = f"Se han procesado {profiles_searched} perfiles.\n" \
+                         f"Total de criterios buscados: {total_criterios}\n" \
+                         f"Total de ejecuciones encontradas: {total_found}"
+
+        if tracking_profiles:
+            result_message += f"\n\nSeguimiento óptimo:\n" \
+                              f"• Perfiles con seguimiento: {len(tracking_profiles)}\n" \
+                              f"• Perfiles que alcanzaron el óptimo: {optimal_achieved}\n" \
+                              f"• Tasa de éxito: {round((optimal_achieved / len(tracking_profiles)) * 100, 1) if tracking_profiles else 0}%"
+
+        messagebox.showinfo("Búsqueda global completada", result_message)
 
         if self.bottom_right_panel:
+            summary = self.profile_manager.get_profiles_summary()
             self.bottom_right_panel.add_log_entry(
-                f"✅ Búsqueda global completada: {total_found} correos "
-                f"({total_criterios} criterios procesados)"
+                f"✅ Búsqueda global completada: {total_found} ejecuciones "
+                f"({optimal_achieved}/{len(tracking_profiles)} perfiles óptimos)"
             )
 
     def _generate_report(self):
-        """Genera y envía reporte Excel con información de perfiles y múltiples criterios."""
+        """Genera y envía reporte Excel con información de perfiles, múltiples criterios y seguimiento óptimo."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
             messagebox.showinfo("Información", "No hay perfiles para generar reporte.")
             return
 
-        # Obtener estadísticas mejoradas
+        # Obtener estadísticas mejoradas con seguimiento óptimo
         summary = self.profile_manager.get_profiles_summary()
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(
                 f"Iniciando generación de reporte: {summary['total_profiles']} perfiles, "
-                f"{summary['total_criteria']} criterios total"
+                f"{summary['total_criteria']} criterios, {summary['profiles_with_tracking']} con seguimiento óptimo"
             )
 
         try:
@@ -393,7 +454,7 @@ class TopPanel:
             if success:
                 if self.bottom_right_panel:
                     self.bottom_right_panel.add_log_entry(
-                        "✅ Reporte con múltiples criterios enviado por correo exitosamente"
+                        "✅ Reporte con seguimiento óptimo enviado por correo exitosamente"
                     )
                 messagebox.showinfo("Éxito", "Reporte generado y enviado por correo correctamente.")
             else:
@@ -419,7 +480,7 @@ class TopPanel:
         summary = self.profile_manager.get_profiles_summary()
         self._add_log(
             f"Iniciando reporte programado: {summary['total_profiles']} perfiles, "
-            f"{summary['total_criteria']} criterios"
+            f"{summary['total_criteria']} criterios, {summary['profiles_with_tracking']} con seguimiento"
         )
 
         try:
@@ -431,7 +492,8 @@ class TopPanel:
             success = self.email_service.send_report(report_path)
 
             if success:
-                self._add_log("✅ Reporte programado con múltiples criterios enviado exitosamente")
+                optimal_count = summary['optimal_profiles']
+                self._add_log(f"✅ Reporte programado enviado ({optimal_count} perfiles óptimos)")
                 return True
             else:
                 self._add_log("❌ Error al enviar reporte programado por correo")
@@ -453,12 +515,16 @@ class TopPanel:
             self.bottom_right_panel.add_log_entry(message)
 
     def get_data(self):
-        """Retorna los datos actuales del panel con información de múltiples criterios."""
+        """Retorna los datos actuales del panel con información de múltiples criterios y seguimiento óptimo."""
         summary = self.profile_manager.get_profiles_summary()
         return {
             "panel_type": "top_panel",
             "profiles_count": summary['total_profiles'],
             "total_criteria": summary['total_criteria'],
             "active_profiles": summary['active_profiles'],
-            "total_emails_found": summary['total_emails_found']
+            "total_emails_found": summary['total_emails_found'],
+            # Nuevas métricas
+            "profiles_with_tracking": summary['profiles_with_tracking'],
+            "optimal_profiles": summary['optimal_profiles'],
+            "avg_success_percentage": summary['avg_success_percentage']
         }

@@ -2,7 +2,7 @@
 """
 Gestor para manejar perfiles de búsqueda.
 Proporciona funciones para cargar, guardar, añadir, actualizar y eliminar perfiles
-con soporte para múltiples criterios de búsqueda.
+con soporte para múltiples criterios de búsqueda y seguimiento de ejecuciones óptimas.
 """
 
 import json
@@ -12,7 +12,7 @@ from gui.models.search_profile import SearchProfile
 
 
 class ProfileManager:
-    """Gestiona operaciones CRUD para perfiles de búsqueda con múltiples criterios."""
+    """Gestiona operaciones CRUD para perfiles de búsqueda con múltiples criterios y seguimiento óptimo."""
 
     def __init__(self, config_dir=None):
         """
@@ -35,6 +35,7 @@ class ProfileManager:
         """
         Carga perfiles desde el archivo de configuración.
         Mantiene compatibilidad con formato antiguo (string) y nuevo (lista).
+        Incluye compatibilidad hacia atrás para perfiles sin seguimiento óptimo.
 
         Returns:
             list: Lista de perfiles cargados
@@ -61,11 +62,16 @@ class ProfileManager:
             self.profiles = []
 
         print(f"Perfiles cargados: {len(self.profiles)}")
+        # Mostrar estadísticas de seguimiento óptimo
+        tracking_profiles = [p for p in self.profiles if p.track_optimal]
+        if tracking_profiles:
+            print(f"Perfiles con seguimiento óptimo: {len(tracking_profiles)}")
+
         return self.profiles
 
     def save_profiles(self):
         """
-        Guarda los perfiles en el archivo de configuración.
+        Guarda los perfiles en el archivo de configuración incluyendo campos de seguimiento óptimo.
 
         Returns:
             bool: True si se guardaron correctamente, False en caso contrario
@@ -114,6 +120,7 @@ class ProfileManager:
     def add_profile(self, name, search_criteria):
         """
         Añade un nuevo perfil con múltiples criterios de búsqueda.
+        Los campos de seguimiento óptimo se configuran después de la creación.
 
         Args:
             name (str): Nombre del perfil
@@ -148,6 +155,7 @@ class ProfileManager:
     def update_profile(self, profile_id, name, search_criteria):
         """
         Actualiza un perfil existente con nuevos criterios.
+        Nota: Los campos de seguimiento óptimo deben actualizarse por separado.
 
         Args:
             profile_id (str): ID del perfil a actualizar
@@ -167,7 +175,7 @@ class ProfileManager:
             original_name = profile.name
             original_criteria = profile.search_criteria.copy()
 
-            # Actualizar el perfil
+            # Actualizar solo los criterios básicos (no los campos de seguimiento óptimo)
             profile.update(name, search_criteria)
 
             # Validar que tenga criterios válidos
@@ -208,10 +216,11 @@ class ProfileManager:
 
         try:
             profile_name = profile.name
+            optimal_text = " (con seguimiento óptimo)" if profile.track_optimal else ""
             self.profiles.remove(profile)
 
             if self.save_profiles():
-                print(f"Perfil eliminado: '{profile_name}'")
+                print(f"Perfil eliminado: '{profile_name}'{optimal_text}")
                 return True
             else:
                 # Si falla al guardar, restaurar el perfil
@@ -225,7 +234,7 @@ class ProfileManager:
     def update_search_results(self, profile_id, found_emails):
         """
         Actualiza los resultados de búsqueda para un perfil.
-        Ahora maneja la suma de múltiples criterios.
+        Ahora maneja la suma de múltiples criterios y calcula automáticamente porcentajes de éxito.
 
         Args:
             profile_id (str): ID del perfil
@@ -244,8 +253,18 @@ class ProfileManager:
 
             if self.save_profiles():
                 criterios_count = len(profile.search_criteria)
-                print(f"Resultados actualizados para '{profile.name}': {found_emails} correos "
-                      f"(búsqueda en {criterios_count} criterio(s))")
+                message = f"Resultados actualizados para '{profile.name}': {found_emails} ejecuciones " \
+                          f"(búsqueda en {criterios_count} criterio(s))"
+
+                # Agregar información de éxito si está habilitado el seguimiento
+                if profile.track_optimal:
+                    success_percentage = profile.get_success_percentage()
+                    if success_percentage is not None:
+                        message += f" - Éxito: {success_percentage}%"
+                        if profile.is_success_optimal():
+                            message += " ✅"
+
+                print(message)
                 return profile
             else:
                 raise Exception("Error al guardar resultados de búsqueda")
@@ -256,22 +275,38 @@ class ProfileManager:
 
     def get_profiles_summary(self):
         """
-        Retorna un resumen estadístico de los perfiles.
+        Retorna un resumen estadístico de los perfiles incluyendo métricas de seguimiento óptimo.
 
         Returns:
-            dict: Estadísticas de los perfiles
+            dict: Estadísticas ampliadas de los perfiles
         """
         if not self.profiles:
             return {
                 "total_profiles": 0,
                 "active_profiles": 0,
                 "total_criteria": 0,
-                "total_emails_found": 0
+                "total_emails_found": 0,
+                "profiles_with_tracking": 0,
+                "optimal_profiles": 0,
+                "avg_success_percentage": 0
             }
 
         active_profiles = [p for p in self.profiles if p.last_search is not None]
         total_criteria = sum(len(p.search_criteria) for p in self.profiles)
         total_emails = sum(p.found_emails for p in self.profiles)
+
+        # Estadísticas de seguimiento óptimo
+        profiles_with_tracking = [p for p in self.profiles if p.track_optimal]
+        optimal_profiles = [p for p in profiles_with_tracking if p.is_success_optimal()]
+
+        # Calcular promedio de éxito
+        success_percentages = []
+        for profile in profiles_with_tracking:
+            percentage = profile.get_success_percentage()
+            if percentage is not None:
+                success_percentages.append(percentage)
+
+        avg_success = round(sum(success_percentages) / len(success_percentages), 1) if success_percentages else 0
 
         return {
             "total_profiles": len(self.profiles),
@@ -279,5 +314,11 @@ class ProfileManager:
             "total_criteria": total_criteria,
             "total_emails_found": total_emails,
             "avg_criteria_per_profile": round(total_criteria / len(self.profiles), 1),
-            "avg_emails_per_active_profile": round(total_emails / len(active_profiles), 1) if active_profiles else 0
+            "avg_emails_per_active_profile": round(total_emails / len(active_profiles), 1) if active_profiles else 0,
+            # Nuevas métricas
+            "profiles_with_tracking": len(profiles_with_tracking),
+            "optimal_profiles": len(optimal_profiles),
+            "avg_success_percentage": avg_success,
+            "success_rate": round((len(optimal_profiles) / len(profiles_with_tracking)) * 100,
+                                  1) if profiles_with_tracking else 0
         }
