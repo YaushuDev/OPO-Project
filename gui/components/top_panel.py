@@ -63,7 +63,7 @@ class TopPanel:
         # Título del panel
         self.title_label = ttk.Label(
             self.header_frame,
-            text="🔍 PERFILES DE BÚSQUEDA",
+            text="📁 PERFILES DE BÚSQUEDA",
             font=("Arial", 12, "bold")
         )
         self.title_label.grid(row=0, column=0, sticky="w", pady=5)
@@ -80,7 +80,7 @@ class TopPanel:
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
-        # Nuevo botón de programación
+        # Botón de programación
         self.schedule_btn = ttk.Button(
             self.button_frame,
             text="Programar Envíos",
@@ -100,15 +100,7 @@ class TopPanel:
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=3, padx=(0, 5))
-
-        # Botón para limpiar caché
-        self.clear_cache_btn = ttk.Button(
-            self.button_frame,
-            text="Limpiar Caché",
-            command=self._clear_search_cache
-        )
-        self.clear_cache_btn.grid(row=0, column=4, padx=(0, 5))
+        self.new_btn.grid(row=0, column=3)
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -332,20 +324,6 @@ class TopPanel:
 
         if self.bottom_right_panel:
             self.bottom_right_panel.add_log_entry(f"Búsqueda global completada. Total: {total_found} correos")
-
-    def _clear_search_cache(self):
-        """Limpia la caché de búsquedas."""
-        confirm = messagebox.askyesno(
-            "Confirmar acción",
-            "¿Estás seguro de limpiar la caché de búsquedas?\nEsto hará que las próximas búsquedas sean más lentas.",
-            icon=messagebox.WARNING
-        )
-
-        if confirm:
-            self.search_service.clear_cache()
-            if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry("Caché de búsquedas limpiada")
-            messagebox.showinfo("Información", "Caché de búsquedas limpiada correctamente")
 
     def _generate_report(self):
         """Genera y envía reporte Excel con información de perfiles."""

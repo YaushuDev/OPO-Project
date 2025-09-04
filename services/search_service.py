@@ -189,16 +189,6 @@ class SearchService:
         except Exception as e:
             self._log(f"Error al guardar caché: {e}")
 
-    def clear_cache(self):
-        """Limpia la caché de correos."""
-        self.email_cache = {}
-        if self.cache_file.exists():
-            try:
-                os.remove(self.cache_file)
-                self._log("Caché de correos eliminada")
-            except Exception as e:
-                self._log(f"Error al eliminar archivo de caché: {e}")
-
     def _log(self, message):
         """
         Registra mensaje en el log.
