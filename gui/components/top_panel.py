@@ -1,15 +1,16 @@
 # top_panel.py
 """
-Componente del panel superior del bot.
-Muestra perfiles de búsqueda de correos con múltiples criterios, seguimiento de ejecuciones
-óptimas con porcentajes de éxito y colores indicativos, tipo de bot (Automático/Manual) y permite gestionarlos.
-Incluye búsqueda automática antes de generar reportes para garantizar datos actualizados.
+Componente del panel superior del bot optimizado con threading.
+Previene bloqueos de UI durante operaciones pesadas como búsquedas IMAP y generación de reportes.
+Incluye indicadores de progreso y manejo asíncrono de operaciones.
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import os
+import threading
+import time
 from pathlib import Path
 from gui.models.profile_manager import ProfileManager
 from gui.components.profile_modal import ProfileModal
@@ -18,14 +19,15 @@ from services.report_service import ReportService
 from services.email_service import EmailService
 from services.scheduler_service import SchedulerService
 from services.search_service import SearchService
+from services.progress_service import ProgressService
 
 
 class TopPanel:
-    """Maneja el contenido y funcionalidad del panel superior con perfiles de búsqueda múltiple, seguimiento óptimo y tipo de bot."""
+    """Panel superior optimizado con threading para prevenir bloqueos de UI."""
 
     def __init__(self, parent_frame, bottom_right_panel=None):
         """
-        Inicializa el panel superior.
+        Inicializa el panel superior optimizado.
 
         Args:
             parent_frame: Frame padre donde se montará este componente
@@ -37,8 +39,18 @@ class TopPanel:
         self.report_service = ReportService()
         self.email_service = EmailService()
 
+        # Inicializar el servicio de progreso
+        self.progress_service = ProgressService(
+            parent_frame,
+            log_callback=self._add_log
+        )
+
         # Inicializar el servicio de búsqueda mejorada
         self.search_service = SearchService(log_callback=self._add_log)
+
+        # Variables de control para operaciones asíncronas
+        self.is_searching = False
+        self.is_generating_report = False
 
         # Inicializar el servicio de programación con referencia a la función de generación de reportes
         self.scheduler_service = SchedulerService(
@@ -74,11 +86,11 @@ class TopPanel:
         self.button_frame = ttk.Frame(self.header_frame)
         self.button_frame.grid(row=0, column=1, sticky="e")
 
-        # Botones de acción
+        # Botones de acción optimizados
         self.generate_report_btn = ttk.Button(
             self.button_frame,
             text="Generar Reporte",
-            command=self._generate_report_with_updated_data
+            command=self._generate_report_async
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
@@ -86,14 +98,14 @@ class TopPanel:
         self.schedule_btn = ttk.Button(
             self.button_frame,
             text="Programar Envíos",
-            command=self._open_scheduler_modal
+            command=self._open_scheduler_modal_safe
         )
         self.schedule_btn.grid(row=0, column=1, padx=(0, 5))
 
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
-            command=self._run_global_search
+            command=self._run_global_search_async
         )
         self.search_all_btn.grid(row=0, column=2, padx=(0, 5))
 
@@ -110,7 +122,7 @@ class TopPanel:
         self.grid_frame.columnconfigure(0, weight=1)
         self.grid_frame.rowconfigure(0, weight=1)
 
-        # Crear Treeview para la tabla de perfiles con nueva columna de tipo de bot
+        # Crear Treeview para la tabla de perfiles
         self.profiles_tree = ttk.Treeview(
             self.grid_frame,
             columns=("name", "bot_type", "criteria", "executions", "optimal", "success", "last_search", "actions"),
@@ -118,9 +130,9 @@ class TopPanel:
             selectmode="browse"
         )
 
-        # Definir columnas con la nueva columna de tipo de bot
+        # Definir columnas
         self.profiles_tree.heading("name", text="Nombre del Perfil")
-        self.profiles_tree.heading("bot_type", text="Tipo de Bot")  # NUEVA COLUMNA
+        self.profiles_tree.heading("bot_type", text="Tipo de Bot")
         self.profiles_tree.heading("criteria", text="Criterios de Búsqueda")
         self.profiles_tree.heading("executions", text="Cantidad de ejecuciones")
         self.profiles_tree.heading("optimal", text="Ejecuciones Óptimas")
@@ -128,10 +140,10 @@ class TopPanel:
         self.profiles_tree.heading("last_search", text="Última Búsqueda")
         self.profiles_tree.heading("actions", text="Acciones")
 
-        # Configurar ancho de columnas (redistribuido para la nueva columna)
+        # Configurar ancho de columnas
         self.profiles_tree.column("name", width=110, minwidth=90)
-        self.profiles_tree.column("bot_type", width=90, minwidth=80, anchor="center")  # NUEVA COLUMNA
-        self.profiles_tree.column("criteria", width=200, minwidth=180)  # Reducido
+        self.profiles_tree.column("bot_type", width=90, minwidth=80, anchor="center")
+        self.profiles_tree.column("criteria", width=200, minwidth=180)
         self.profiles_tree.column("executions", width=100, minwidth=80, anchor="center")
         self.profiles_tree.column("optimal", width=100, minwidth=80, anchor="center")
         self.profiles_tree.column("success", width=100, minwidth=80, anchor="center")
@@ -151,10 +163,8 @@ class TopPanel:
         hsb.grid(row=1, column=0, sticky="ew")
         self.profiles_tree.configure(xscrollcommand=hsb.set)
 
-        # Configurar estilos para el Treeview (colores para éxito óptimo)
+        # Configurar estilos para el Treeview
         style = ttk.Style()
-
-        # Estilo para filas con éxito óptimo (verde)
         style.configure("Success.Treeview", background="#e8f5e8", foreground="darkgreen")
 
         # Enlazar eventos
@@ -175,7 +185,7 @@ class TopPanel:
         )
 
     def _load_profiles(self):
-        """Carga y muestra los perfiles con múltiples criterios, seguimiento óptimo y tipo de bot en el grid."""
+        """Carga y muestra los perfiles en el grid."""
         # Limpiar el grid actual
         for item in self.profiles_tree.get_children():
             self.profiles_tree.delete(item)
@@ -195,24 +205,20 @@ class TopPanel:
                 # Formatear la fecha de última búsqueda
                 last_search = "Nunca" if not profile.last_search else profile.last_search.strftime("%d/%m/%Y %H:%M")
 
-                # Usar el método get_criteria_display() para mostrar criterios de manera legible
+                # Usar métodos del perfil para mostrar información
                 criteria_display = profile.get_criteria_display()
-
-                # Mostrar información de seguimiento óptimo
                 optimal_display = profile.get_optimal_display()
                 success_display = profile.get_success_display()
-
-                # NUEVA: Mostrar tipo de bot
                 bot_type_display = profile.get_bot_type_display()
 
-                # Añadir fila a la tabla con la nueva columna
+                # Añadir fila a la tabla
                 item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
                     profile.name,
-                    bot_type_display,  # NUEVA COLUMNA: Tipo de bot
+                    bot_type_display,
                     criteria_display,
-                    profile.found_emails,  # Cantidad de ejecuciones
-                    optimal_display,  # Ejecuciones óptimas
-                    success_display,  # Porcentaje de éxito
+                    profile.found_emails,
+                    optimal_display,
+                    success_display,
                     last_search,
                     "🗑️ Eliminar"
                 ))
@@ -222,18 +228,15 @@ class TopPanel:
 
                 # Aplicar color verde si tiene éxito óptimo
                 if profile.is_success_optimal():
-                    # Configurar fondo verde para toda la fila
                     self.profiles_tree.set(item_id, "success", f"✅ {success_display}")
 
             except Exception as e:
                 self._add_log(f"Error al cargar perfil {profile.name}: {e}")
                 continue
 
-        # Mostrar estadísticas ampliadas en el log incluyendo tipos de bot
+        # Mostrar estadísticas en el log
         if profiles and self.bottom_right_panel:
             summary = self.profile_manager.get_profiles_summary()
-
-            # Estadísticas de tipo de bot
             automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
             manual_bots = len([p for p in profiles if p.is_bot_manual()])
 
@@ -260,7 +263,7 @@ class TopPanel:
             if not item:
                 return
 
-            # Si es la columna de acciones (8, antes era 7)
+            # Si es la columna de acciones
             if column == "#8":
                 profile_id = self.profiles_tree.item(item, "tags")[0]
                 profile = self.profile_manager.get_profile_by_id(profile_id)
@@ -288,16 +291,41 @@ class TopPanel:
 
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
-    def _open_scheduler_modal(self):
-        """Abre el modal para configurar la programación de reportes."""
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry("Abriendo configuración de programación de reportes")
+    def _open_scheduler_modal_safe(self):
+        """Abre el modal de programación de manera segura."""
+        if self.is_searching or self.is_generating_report:
+            messagebox.showwarning(
+                "Operación en Progreso",
+                "Hay una operación en curso. Espera a que termine antes de configurar la programación."
+            )
+            return
 
-        # Abrir modal de configuración
-        scheduler_modal = SchedulerModal(self.parent_frame, self.bottom_right_panel)
+        try:
+            if self.bottom_right_panel:
+                self.bottom_right_panel.add_log_entry("Abriendo configuración de programación de reportes")
 
-        # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
-        self.parent_frame.after(500, self.scheduler_service.restart)
+            # Deshabilitar botón temporalmente
+            self.schedule_btn.config(state="disabled")
+
+            # Abrir modal de configuración
+            scheduler_modal = SchedulerModal(self.parent_frame, self.bottom_right_panel)
+
+            # Programar rehabilitación del botón y reinicio del servicio
+            def restore_and_restart():
+                self.schedule_btn.config(state="normal")
+                # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
+                try:
+                    self.scheduler_service.restart()
+                    self._add_log("✅ Configuración de programación actualizada")
+                except Exception as e:
+                    self._add_log(f"⚠️ Error al reiniciar programación: {e}")
+
+            self.parent_frame.after(1000, restore_and_restart)
+
+        except Exception as e:
+            self.schedule_btn.config(state="normal")
+            self._add_log(f"❌ Error al abrir configuración de programación: {e}")
+            messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
 
     def _edit_profile(self, profile):
         """Abre el modal para editar un perfil."""
@@ -344,87 +372,130 @@ class TopPanel:
             else:
                 messagebox.showerror("Error", "No se pudo eliminar el perfil")
 
-    def _run_search(self, profile):
-        """
-        Ejecuta la búsqueda mejorada con todos los criterios del perfil seleccionado.
-
-        Args:
-            profile: Perfil de búsqueda con múltiples criterios
-
-        Returns:
-            int: Número total de correos encontrados (suma de todos los criterios)
-        """
-        criterios_count = len(profile.search_criteria)
-        bot_type_text = "Automático" if profile.is_bot_automatic() else "Manual"
-        optimal_info = ""
-        if profile.track_optimal:
-            optimal_info = f" (óptimo: {profile.optimal_executions})"
-
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(
-                f"🔍 Ejecutando búsqueda mejorada: '{profile.name}' [{bot_type_text}] con {criterios_count} criterio(s){optimal_info}"
+    def _run_global_search_async(self):
+        """Ejecuta búsqueda global de manera asíncrona para prevenir bloqueos."""
+        if self.is_searching or self.is_generating_report:
+            messagebox.showwarning(
+                "Operación en Progreso",
+                "Ya hay una operación en curso. Espera a que termine."
             )
+            return
 
-        # Ejecutar búsqueda real usando el servicio mejorado (ahora maneja múltiples criterios con timestamp)
-        total_found = self.search_service.search_emails(profile)
-
-        # Actualizar resultados en el perfil
-        self.profile_manager.update_search_results(profile.profile_id, total_found)
-
-        # Log ampliado con información de éxito y tipo de bot
-        log_message = f"✅ Búsqueda completada [{bot_type_text}]: {total_found} ejecuciones encontradas " \
-                      f"(suma de {criterios_count} criterios con verificación de timestamp)"
-
-        if profile.track_optimal:
-            success_percentage = profile.get_success_percentage()
-            if success_percentage is not None:
-                log_message += f" - Éxito: {success_percentage}%"
-                if profile.is_success_optimal():
-                    log_message += " ✅ ÓPTIMO"
-
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(log_message)
-
-        # Actualizar el grid
-        self._load_profiles()
-        return total_found
-
-    def _run_global_search(self):
-        """Ejecuta la búsqueda mejorada para todos los perfiles con todos sus criterios."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
             messagebox.showinfo("Información", "No hay perfiles de búsqueda para ejecutar.")
             return
 
-        # Calcular estadísticas de tipos de bot
-        total_criterios = sum(len(p.search_criteria) for p in profiles)
-        tracking_profiles = [p for p in profiles if p.track_optimal]
-        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
-        manual_bots = len([p for p in profiles if p.is_bot_manual()])
+        # Marcar como en progreso y deshabilitar botones
+        self.is_searching = True
+        self._set_buttons_state("disabled")
 
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(
-                f"🚀 Iniciando búsqueda global mejorada: {len(profiles)} perfiles ({automatic_bots} automáticos, {manual_bots} manuales), "
-                f"{total_criterios} criterios, {len(tracking_profiles)} con seguimiento óptimo"
+        # Iniciar operación de progreso
+        self.progress_service.start_operation(
+            "Búsqueda Global de Correos",
+            len(profiles),
+            can_cancel=True
+        )
+
+        # Ejecutar en hilo separado
+        def search_thread():
+            try:
+                self._perform_global_search_threaded(profiles)
+            finally:
+                # Rehabilitar botones y marcar como terminado
+                self.parent_frame.after(0, lambda: self._finish_search_operation())
+
+        thread = threading.Thread(target=search_thread, daemon=True)
+        thread.start()
+
+    def _perform_global_search_threaded(self, profiles):
+        """Ejecuta la búsqueda global en un hilo separado."""
+        try:
+            # Calcular estadísticas iniciales
+            total_criterios = sum(len(p.search_criteria) for p in profiles)
+            tracking_profiles = [p for p in profiles if p.track_optimal]
+            automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
+            manual_bots = len([p for p in profiles if p.is_bot_manual()])
+
+            self.progress_service.log_progress(
+                f"🚀 Búsqueda global iniciada: {len(profiles)} perfiles "
+                f"({automatic_bots} automáticos, {manual_bots} manuales), "
+                f"{total_criterios} criterios"
             )
 
-        total_found = 0
-        profiles_searched = 0
-        optimal_achieved = 0
+            total_found = 0
+            profiles_searched = 0
+            optimal_achieved = 0
 
-        for profile in profiles:
-            found = self._run_search(profile)
-            total_found += found
-            profiles_searched += 1
+            for i, profile in enumerate(profiles):
+                # Verificar cancelación
+                if self.progress_service.is_cancelled():
+                    self.progress_service.log_progress("🛑 Búsqueda cancelada por el usuario")
+                    return
 
-            # Contar perfiles que alcanzaron el óptimo
-            if profile.is_success_optimal():
-                optimal_achieved += 1
+                # Actualizar progreso
+                self.progress_service.update_progress(
+                    i + 1, len(profiles),
+                    f"Buscando: {profile.name}..."
+                )
 
-        self._load_profiles()
+                try:
+                    # Ejecutar búsqueda para este perfil
+                    found = self._run_search_threaded(profile)
+                    total_found += found
+                    profiles_searched += 1
 
-        # Mensaje de resultado ampliado incluyendo tipos de bot
+                    # Contar perfiles que alcanzaron el óptimo
+                    if profile.is_success_optimal():
+                        optimal_achieved += 1
+
+                    # Pequeña pausa para no saturar el servidor
+                    time.sleep(0.5)
+
+                except Exception as e:
+                    self.progress_service.log_progress(f"⚠️ Error en perfil {profile.name}: {e}")
+                    continue
+
+            # Programar actualización de UI en el hilo principal
+            self.parent_frame.after(0, self._load_profiles)
+
+            # Completar operación
+            success_message = (
+                f"Búsqueda global completada: {total_found} ejecuciones encontradas, "
+                f"{optimal_achieved}/{len(tracking_profiles)} perfiles alcanzaron óptimo"
+            )
+
+            self.progress_service.complete_operation(success_message)
+
+            # Mostrar resultado
+            self.parent_frame.after(0, lambda: self._show_search_results(
+                profiles_searched, total_criterios, total_found,
+                automatic_bots, manual_bots, tracking_profiles, optimal_achieved
+            ))
+
+        except Exception as e:
+            error_msg = f"Error durante búsqueda global: {e}"
+            self.progress_service.error_operation(error_msg)
+
+    def _run_search_threaded(self, profile):
+        """Ejecuta búsqueda para un perfil específico en hilo separado."""
+        try:
+            # Ejecutar búsqueda real usando el servicio mejorado
+            total_found = self.search_service.search_emails(profile)
+
+            # Actualizar resultados en el perfil
+            self.profile_manager.update_search_results(profile.profile_id, total_found)
+
+            return total_found
+
+        except Exception as e:
+            self.progress_service.log_progress(f"❌ Error en búsqueda de {profile.name}: {e}")
+            return 0
+
+    def _show_search_results(self, profiles_searched, total_criterios, total_found,
+                             automatic_bots, manual_bots, tracking_profiles, optimal_achieved):
+        """Muestra los resultados de la búsqueda global."""
         result_message = f"✅ Se han procesado {profiles_searched} perfiles.\n" \
                          f"Total de criterios buscados: {total_criterios}\n" \
                          f"Total de ejecuciones encontradas: {total_found}\n" \
@@ -432,174 +503,167 @@ class TopPanel:
                          f"Método: Búsqueda mejorada con verificación de timestamp"
 
         if tracking_profiles:
+            success_rate = round((optimal_achieved / len(tracking_profiles)) * 100, 1) if tracking_profiles else 0
             result_message += f"\n\nSeguimiento óptimo:\n" \
                               f"• Perfiles con seguimiento: {len(tracking_profiles)}\n" \
                               f"• Perfiles que alcanzaron el óptimo: {optimal_achieved}\n" \
-                              f"• Tasa de éxito: {round((optimal_achieved / len(tracking_profiles)) * 100, 1) if tracking_profiles else 0}%"
+                              f"• Tasa de éxito: {success_rate}%"
 
-        messagebox.showinfo("Búsqueda global completada", result_message)
+        messagebox.showinfo("Búsqueda Global Completada", result_message)
 
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(
-                f"✅ Búsqueda global mejorada completada: {total_found} ejecuciones "
-                f"({optimal_achieved}/{len(tracking_profiles)} perfiles óptimos, "
-                f"{automatic_bots} automáticos/{manual_bots} manuales)"
+    def _finish_search_operation(self):
+        """Finaliza la operación de búsqueda y restaura la UI."""
+        self.is_searching = False
+        self._set_buttons_state("normal")
+
+    def _generate_report_async(self):
+        """Genera reporte de manera asíncrona para prevenir bloqueos."""
+        if self.is_searching or self.is_generating_report:
+            messagebox.showwarning(
+                "Operación en Progreso",
+                "Ya hay una operación en curso. Espera a que termine."
             )
+            return
 
-    def _generate_report_with_updated_data(self):
-        """
-        NUEVO: Genera reporte con datos actualizados ejecutando búsqueda global primero.
-        Garantiza que el reporte siempre tenga los datos más recientes.
-        """
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
             messagebox.showinfo("Información", "No hay perfiles para generar reporte.")
             return
 
-        # Obtener estadísticas para el log inicial
-        summary = self.profile_manager.get_profiles_summary()
-        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
-        manual_bots = len([p for p in profiles if p.is_bot_manual()])
+        # Marcar como en progreso y deshabilitar botones
+        self.is_generating_report = True
+        self._set_buttons_state("disabled")
 
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry("=" * 50)
-            self.bottom_right_panel.add_log_entry("📊 INICIANDO GENERACIÓN DE REPORTE CON DATOS ACTUALIZADOS")
-            self.bottom_right_panel.add_log_entry("=" * 50)
-            self.bottom_right_panel.add_log_entry(
-                f"📋 Estado inicial: {summary['total_profiles']} perfiles "
-                f"({automatic_bots} automáticos, {manual_bots} manuales), "
-                f"{summary['total_criteria']} criterios, {summary['profiles_with_tracking']} con seguimiento óptimo"
-            )
+        # Iniciar operación de progreso
+        self.progress_service.start_operation(
+            "Generación de Reporte con Datos Actualizados",
+            len(profiles) + 2,  # Perfiles + generación + envío
+            can_cancel=False
+        )
 
+        # Ejecutar en hilo separado
+        def report_thread():
+            try:
+                self._perform_report_generation_threaded(profiles)
+            finally:
+                # Rehabilitar botones y marcar como terminado
+                self.parent_frame.after(0, lambda: self._finish_report_operation())
+
+        thread = threading.Thread(target=report_thread, daemon=True)
+        thread.start()
+
+    def _perform_report_generation_threaded(self, profiles):
+        """Ejecuta la generación de reporte en un hilo separado."""
         try:
-            # PASO 1: Actualizar todos los datos ejecutando búsqueda global
-            self.bottom_right_panel.add_log_entry("🔄 PASO 1: Actualizando todos los datos de perfiles...")
+            summary = self.profile_manager.get_profiles_summary()
+            automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
+            manual_bots = len([p for p in profiles if p.is_bot_manual()])
 
-            # Deshabilitar botón temporalmente para evitar clics múltiples
-            self.generate_report_btn.config(state="disabled", text="Actualizando...")
+            self.progress_service.log_progress("=" * 50)
+            self.progress_service.log_progress("📊 GENERACIÓN DE REPORTE CON DATOS ACTUALIZADOS")
+            self.progress_service.log_progress("=" * 50)
 
-            # Forzar actualización de la interfaz
-            self.parent_frame.update()
-
-            # Ejecutar búsqueda global para actualizar todos los datos
-            self._run_global_search_silent()
-
-            # PASO 2: Generar reporte con datos actualizados
-            self.bottom_right_panel.add_log_entry("📊 PASO 2: Generando reporte Excel con datos actualizados...")
-
-            # Obtener estadísticas actualizadas
-            updated_summary = self.profile_manager.get_profiles_summary()
-            updated_profiles = self.profile_manager.get_all_profiles()
-            updated_automatic = len([p for p in updated_profiles if p.is_bot_automatic()])
-            updated_manual = len([p for p in updated_profiles if p.is_bot_manual()])
-
-            self.bottom_right_panel.add_log_entry(
-                f"📈 Datos actualizados: {updated_summary['total_emails_found']} ejecuciones totales, "
-                f"{updated_summary['profiles_with_tracking']} con seguimiento, "
-                f"{updated_summary['optimal_profiles']} alcanzaron óptimo"
+            # PASO 1: Actualizar datos
+            self.progress_service.update_progress(1, len(profiles) + 2, "Actualizando datos de perfiles...")
+            self.progress_service.log_progress(
+                f"📋 Actualizando {summary['total_profiles']} perfiles "
+                f"({automatic_bots} automáticos, {manual_bots} manuales)"
             )
 
-            # Generar archivo Excel con datos actualizados
-            report_path = self.report_service.generate_profiles_report(updated_profiles)
+            # Ejecutar búsqueda silenciosa para actualizar datos
+            total_updated = self._run_global_search_silent_threaded(profiles)
 
-            self.bottom_right_panel.add_log_entry(f"✅ Reporte actualizado generado: {report_path}")
+            # PASO 2: Generar reporte
+            self.progress_service.update_progress(len(profiles) + 1, len(profiles) + 2, "Generando reporte Excel...")
+
+            updated_profiles = self.profile_manager.get_all_profiles()
+            updated_summary = self.profile_manager.get_profiles_summary()
+
+            self.progress_service.log_progress(
+                f"📈 Datos actualizados: {updated_summary['total_emails_found']} ejecuciones totales"
+            )
+
+            report_path = self.report_service.generate_profiles_report(updated_profiles)
+            self.progress_service.log_progress(f"✅ Reporte generado: {report_path}")
 
             # PASO 3: Enviar por correo
-            self.bottom_right_panel.add_log_entry("📧 PASO 3: Enviando reporte por correo...")
+            self.progress_service.update_progress(len(profiles) + 2, len(profiles) + 2, "Enviando por correo...")
 
             success = self.email_service.send_report(report_path)
 
             if success:
-                self.bottom_right_panel.add_log_entry("=" * 50)
-                self.bottom_right_panel.add_log_entry(
-                    "✅ REPORTE CON DATOS ACTUALIZADOS ENVIADO EXITOSAMENTE"
+                success_message = (
+                    f"Reporte con datos actualizados enviado exitosamente. "
+                    f"Incluye {updated_summary['profiles_with_tracking']} perfiles con seguimiento óptimo"
                 )
-                self.bottom_right_panel.add_log_entry(
-                    f"📊 Incluye: {updated_summary['profiles_with_tracking']} perfiles con seguimiento óptimo, "
-                    f"{updated_automatic} automáticos/{updated_manual} manuales, "
-                    f"verificación por timestamp"
-                )
-                self.bottom_right_panel.add_log_entry("=" * 50)
+                self.progress_service.complete_operation(success_message)
 
-                messagebox.showinfo(
-                    "✅ Reporte Actualizado Enviado",
-                    f"Reporte generado y enviado correctamente.\n\n"
-                    f"Datos incluidos:\n"
-                    f"• Total ejecuciones: {updated_summary['total_emails_found']}\n"
-                    f"• Perfiles óptimos: {updated_summary['optimal_profiles']}\n"
-                    f"• Bots automáticos: {updated_automatic}\n"
-                    f"• Bots manuales: {updated_manual}\n"
-                    f"• Búsqueda mejorada: Con verificación de timestamp"
-                )
+                # Mostrar resultado
+                self.parent_frame.after(0,
+                                        lambda: self._show_report_results(updated_summary, automatic_bots, manual_bots))
+
             else:
-                self.bottom_right_panel.add_log_entry("❌ Error al enviar reporte por correo")
-                messagebox.showwarning(
-                    "Advertencia",
-                    "Reporte con datos actualizados generado pero no se pudo enviar por correo.\n"
-                    "Verifica la configuración de email."
-                )
+                error_msg = "Reporte generado pero no se pudo enviar por correo"
+                self.progress_service.error_operation(error_msg)
 
         except Exception as e:
-            error_msg = f"💥 Error al generar reporte actualizado: {e}"
-            self.bottom_right_panel.add_log_entry(error_msg)
-            messagebox.showerror("Error", error_msg)
+            error_msg = f"Error durante generación de reporte: {e}"
+            self.progress_service.error_operation(error_msg)
 
-        finally:
-            # Rehabilitar botón
-            self.generate_report_btn.config(state="normal", text="Generar Reporte")
-
-    def _run_global_search_silent(self):
-        """
-        Ejecuta búsqueda global silenciosa (sin mostrar messagebox al final) para actualización de datos.
-        Usado internamente antes de generar reportes.
-        """
-        profiles = self.profile_manager.get_all_profiles()
-
+    def _run_global_search_silent_threaded(self, profiles):
+        """Ejecuta búsqueda global silenciosa en hilo separado."""
         total_found = 0
-        profiles_searched = 0
         optimal_achieved = 0
 
-        for profile in profiles:
-            found = self._run_search_silent(profile)
-            total_found += found
-            profiles_searched += 1
+        for i, profile in enumerate(profiles):
+            self.progress_service.update_progress(i + 1, len(profiles), f"Actualizando: {profile.name}...")
 
-            # Contar perfiles que alcanzaron el óptimo
+            found = self._run_search_threaded(profile)
+            total_found += found
+
             if profile.is_success_optimal():
                 optimal_achieved += 1
 
-        self._load_profiles()
+            # Pequeña pausa
+            time.sleep(0.3)
 
-        # Log sin messagebox
-        if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(
-                f"🔄 Actualización completa: {total_found} ejecuciones encontradas, "
-                f"{optimal_achieved} perfiles alcanzaron óptimo"
-            )
+        # Programar actualización de UI
+        self.parent_frame.after(0, self._load_profiles)
 
-        return total_found
-
-    def _run_search_silent(self, profile):
-        """
-        Ejecuta búsqueda sin logs detallados para actualización interna de datos.
-
-        Args:
-            profile: Perfil de búsqueda
-
-        Returns:
-            int: Número total de correos encontrados
-        """
-        # Ejecutar búsqueda real usando el servicio mejorado
-        total_found = self.search_service.search_emails(profile)
-
-        # Actualizar resultados en el perfil
-        self.profile_manager.update_search_results(profile.profile_id, total_found)
+        self.progress_service.log_progress(
+            f"🔄 Actualización completa: {total_found} ejecuciones encontradas, "
+            f"{optimal_achieved} perfiles alcanzaron óptimo"
+        )
 
         return total_found
+
+    def _show_report_results(self, updated_summary, automatic_bots, manual_bots):
+        """Muestra los resultados de la generación de reporte."""
+        messagebox.showinfo(
+            "✅ Reporte Actualizado Enviado",
+            f"Reporte generado y enviado correctamente.\n\n"
+            f"Datos incluidos:\n"
+            f"• Total ejecuciones: {updated_summary['total_emails_found']}\n"
+            f"• Perfiles óptimos: {updated_summary['optimal_profiles']}\n"
+            f"• Bots automáticos: {automatic_bots}\n"
+            f"• Bots manuales: {manual_bots}\n"
+            f"• Búsqueda mejorada: Con verificación de timestamp"
+        )
+
+    def _finish_report_operation(self):
+        """Finaliza la operación de reporte y restaura la UI."""
+        self.is_generating_report = False
+        self._set_buttons_state("normal")
+
+    def _set_buttons_state(self, state):
+        """Cambia el estado de todos los botones principales."""
+        buttons = [self.generate_report_btn, self.schedule_btn, self.search_all_btn, self.new_btn]
+        for btn in buttons:
+            btn.config(state=state)
 
     def _generate_scheduled_report(self):
-        """Genera y envía reporte programado sin interacción del usuario, con datos actualizados."""
+        """Genera y envía reporte programado sin interacción del usuario."""
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
@@ -612,22 +676,27 @@ class TopPanel:
 
         self._add_log("=" * 40)
         self._add_log("📅 REPORTE PROGRAMADO INICIADO")
-        self._add_log(
-            f"📋 Actualizando datos: {summary['total_profiles']} perfiles "
-            f"({automatic_bots} automáticos, {manual_bots} manuales)"
-        )
 
         try:
             # Actualizar datos antes de generar reporte programado
             self._add_log("🔄 Actualizando datos para reporte programado...")
-            total_updated = self._run_global_search_silent()
+
+            # Ejecutar búsqueda silenciosa en el hilo principal (para reportes programados)
+            total_updated = 0
+            for profile in profiles:
+                try:
+                    found = self.search_service.search_emails(profile)
+                    self.profile_manager.update_search_results(profile.profile_id, found)
+                    total_updated += found
+                except Exception as e:
+                    self._add_log(f"⚠️ Error en perfil {profile.name}: {e}")
 
             # Generar archivo Excel con datos actualizados
             updated_profiles = self.profile_manager.get_all_profiles()
             updated_summary = self.profile_manager.get_profiles_summary()
 
             report_path = self.report_service.generate_profiles_report(updated_profiles)
-            self._add_log(f"📊 Reporte programado con datos actualizados: {report_path}")
+            self._add_log(f"📊 Reporte programado generado: {report_path}")
 
             # Enviar por correo
             success = self.email_service.send_report(report_path)
@@ -650,17 +719,16 @@ class TopPanel:
             return False
 
     def _add_log(self, message):
-        """
-        Agrega mensaje al log.
-
-        Args:
-            message (str): Mensaje a agregar
-        """
+        """Agrega mensaje al log de manera thread-safe."""
         if self.bottom_right_panel:
-            self.bottom_right_panel.add_log_entry(message)
+            # Si estamos en un hilo diferente, programar la actualización en el hilo principal
+            if threading.current_thread() != threading.main_thread():
+                self.parent_frame.after(0, lambda: self.bottom_right_panel.add_log_entry(message))
+            else:
+                self.bottom_right_panel.add_log_entry(message)
 
     def get_data(self):
-        """Retorna los datos actuales del panel con información de múltiples criterios, seguimiento óptimo y tipos de bot."""
+        """Retorna los datos actuales del panel."""
         summary = self.profile_manager.get_profiles_summary()
         profiles = self.profile_manager.get_all_profiles()
         automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
@@ -672,13 +740,11 @@ class TopPanel:
             "total_criteria": summary['total_criteria'],
             "active_profiles": summary['active_profiles'],
             "total_emails_found": summary['total_emails_found'],
-            # Métricas de seguimiento óptimo
             "profiles_with_tracking": summary['profiles_with_tracking'],
             "optimal_profiles": summary['optimal_profiles'],
             "avg_success_percentage": summary['avg_success_percentage'],
-            # NUEVAS MÉTRICAS: Tipos de bot
             "automatic_bots": automatic_bots,
             "manual_bots": manual_bots,
-            # Nueva métrica
-            "enhanced_search": True  # Indica que usa búsqueda mejorada
+            "enhanced_search": True,
+            "optimized_ui": True  # Nueva métrica indicando UI optimizada
         }
