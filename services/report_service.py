@@ -446,10 +446,39 @@ class ReportService:
                     )
 
     def get_reports_directory(self):
-        """
-        Retorna el directorio donde se guardan los reportes.
+        """Retorna el directorio donde se guardan los reportes."""
+        return str(self.reports_dir)
+
+    def merge_excels(self, excel_paths, output_name="reporte_semanal.xlsx"):
+        """Combina múltiples archivos Excel en un solo libro.
+
+        Args:
+            excel_paths (list): Lista de rutas de archivos Excel.
+            output_name (str): Nombre del archivo combinado.
 
         Returns:
-            str: Ruta del directorio de reportes
+            str: Ruta del archivo resultante.
         """
-        return str(self.reports_dir)
+        if openpyxl is None:
+            raise Exception("openpyxl no está instalado. Ejecute: pip install openpyxl")
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Reporte Semanal"
+
+        headers_written = False
+        for path in excel_paths:
+            wb = openpyxl.load_workbook(path)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                continue
+            if not headers_written:
+                sheet.append(rows[0])
+                headers_written = True
+            for row in rows[1:]:
+                sheet.append(row)
+
+        output_path = self.reports_dir / output_name
+        workbook.save(output_path)
+        return str(output_path)
