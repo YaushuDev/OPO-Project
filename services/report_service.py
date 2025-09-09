@@ -6,8 +6,9 @@ seguimiento de ejecuciones óptimas con formato condicional por rangos y tipo de
 """
 
 import os
+import re
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 try:
     import openpyxl
@@ -453,3 +454,78 @@ class ReportService:
             str: Ruta del directorio de reportes
         """
         return str(self.reports_dir)
+
+    def _get_report_date(self, file_path):
+        """Obtiene la fecha desde el nombre del archivo de reporte."""
+        name = file_path.name
+        match = re.search(r"reporte_perfiles_(\d{8})_", name)
+        if match:
+            try:
+                return datetime.strptime(match.group(1), "%Y%m%d").date()
+            except ValueError:
+                return None
+        return None
+
+    def _collect_reports(self, start_date, end_date):
+        """Recopila reportes existentes dentro de un rango de fechas."""
+        reports = []
+        for report in self.reports_dir.glob("reporte_perfiles_*.xlsx"):
+            report_date = self._get_report_date(report)
+            if report_date and start_date <= report_date <= end_date:
+                reports.append(report)
+        return reports
+
+    def generate_weekly_report(self):
+        """Genera un reporte semanal combinando los reportes de la semana actual."""
+        today = datetime.now().date()
+        start_week = today - timedelta(days=today.weekday())
+        reports = self._collect_reports(start_week, today)
+        if not reports:
+            raise Exception("No se encontraron reportes para la semana actual")
+
+        output_path = self.reports_dir / f"reporte_semanal_{today.strftime('%Y%m%d')}.xlsx"
+        return self._combine_reports(reports, output_path)
+
+    def generate_monthly_report(self):
+        """Genera un reporte mensual combinando los reportes del mes actual."""
+        today = datetime.now().date()
+        start_month = today.replace(day=1)
+        reports = self._collect_reports(start_month, today)
+        if not reports:
+            raise Exception("No se encontraron reportes para el mes actual")
+
+        output_path = self.reports_dir / f"reporte_mensual_{today.strftime('%Y%m%d')}.xlsx"
+        return self._combine_reports(reports, output_path)
+
+    def _combine_reports(self, reports, output_path):
+        """Combina múltiples reportes diarios en un solo archivo Excel."""
+        if openpyxl is None:
+            raise Exception("openpyxl no está instalado. Ejecute: pip install openpyxl")
+
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Reportes Combinados"
+
+        header_written = False
+
+        for report in reports:
+            try:
+                wb = openpyxl.load_workbook(report)
+                ws = wb.active
+            except Exception:
+                continue
+
+            report_date = self._get_report_date(report)
+
+            if not header_written:
+                headers = [cell.value for cell in ws[4]]
+                worksheet.append(["Fecha Reporte"] + headers)
+                header_written = True
+
+            for row in ws.iter_rows(min_row=5, values_only=True):
+                if all(value is None for value in row):
+                    continue
+                worksheet.append([report_date.strftime("%Y-%m-%d")] + list(row))
+
+        workbook.save(output_path)
+        return str(output_path)

@@ -52,9 +52,11 @@ class TopPanel:
         self.is_searching = False
         self.is_generating_report = False
 
-        # Inicializar el servicio de programación con referencia a la función de generación de reportes
+        # Inicializar el servicio de programación con referencias a generadores de reportes
         self.scheduler_service = SchedulerService(
             report_generator=self._generate_scheduled_report,
+            weekly_report_generator=self._generate_weekly_report,
+            monthly_report_generator=self._generate_monthly_report,
             log_callback=self._add_log
         )
 
@@ -94,27 +96,44 @@ class TopPanel:
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
+        # Botón para reportes periódicos
+        self.periodic_report_btn = ttk.Menubutton(
+            self.button_frame,
+            text="Reporte Periódico"
+        )
+        periodic_menu = tk.Menu(self.periodic_report_btn, tearoff=False)
+        periodic_menu.add_command(
+            label="Semanal",
+            command=lambda: self._generate_periodic_report_async("weekly")
+        )
+        periodic_menu.add_command(
+            label="Mensual",
+            command=lambda: self._generate_periodic_report_async("monthly")
+        )
+        self.periodic_report_btn["menu"] = periodic_menu
+        self.periodic_report_btn.grid(row=0, column=1, padx=(0, 5))
+
         # Botón de programación
         self.schedule_btn = ttk.Button(
             self.button_frame,
             text="Programar Envíos",
             command=self._open_scheduler_modal_safe
         )
-        self.schedule_btn.grid(row=0, column=1, padx=(0, 5))
+        self.schedule_btn.grid(row=0, column=2, padx=(0, 5))
 
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
             command=self._run_global_search_async
         )
-        self.search_all_btn.grid(row=0, column=2, padx=(0, 5))
+        self.search_all_btn.grid(row=0, column=3, padx=(0, 5))
 
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=3)
+        self.new_btn.grid(row=0, column=4)
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -553,6 +572,59 @@ class TopPanel:
         thread = threading.Thread(target=report_thread, daemon=True)
         thread.start()
 
+    def _generate_periodic_report_async(self, period):
+        """Genera reportes semanal o mensual de forma asíncrona."""
+        if self.is_searching or self.is_generating_report:
+            messagebox.showwarning(
+                "Operación en Progreso",
+                "Ya hay una operación en curso. Espera a que termine."
+            )
+            return
+
+        self.is_generating_report = True
+        self._set_buttons_state("disabled")
+
+        def report_thread():
+            try:
+                if period == "weekly":
+                    self._generate_weekly_report()
+                else:
+                    self._generate_monthly_report()
+            finally:
+                self.parent_frame.after(0, lambda: self._finish_report_operation())
+
+        threading.Thread(target=report_thread, daemon=True).start()
+
+    def _generate_weekly_report(self):
+        """Genera y envía un reporte semanal basado en reportes existentes."""
+        try:
+            report_path = self.report_service.generate_weekly_report()
+            self._add_log(f"📊 Reporte semanal generado: {report_path}")
+            success = self.email_service.send_report(report_path)
+            if success:
+                self._add_log("📧 Reporte semanal enviado correctamente")
+            else:
+                self._add_log("❌ Error al enviar reporte semanal por correo")
+            return report_path
+        except Exception as e:
+            self._add_log(f"💥 Error al generar reporte semanal: {e}")
+            return None
+
+    def _generate_monthly_report(self):
+        """Genera y envía un reporte mensual basado en reportes existentes."""
+        try:
+            report_path = self.report_service.generate_monthly_report()
+            self._add_log(f"📊 Reporte mensual generado: {report_path}")
+            success = self.email_service.send_report(report_path)
+            if success:
+                self._add_log("📧 Reporte mensual enviado correctamente")
+            else:
+                self._add_log("❌ Error al enviar reporte mensual por correo")
+            return report_path
+        except Exception as e:
+            self._add_log(f"💥 Error al generar reporte mensual: {e}")
+            return None
+
     def _perform_report_generation_threaded(self, profiles):
         """Ejecuta la generación de reporte en un hilo separado."""
         try:
@@ -658,7 +730,13 @@ class TopPanel:
 
     def _set_buttons_state(self, state):
         """Cambia el estado de todos los botones principales."""
-        buttons = [self.generate_report_btn, self.schedule_btn, self.search_all_btn, self.new_btn]
+        buttons = [
+            self.generate_report_btn,
+            self.periodic_report_btn,
+            self.schedule_btn,
+            self.search_all_btn,
+            self.new_btn,
+        ]
         for btn in buttons:
             btn.config(state=state)
 
