@@ -138,18 +138,27 @@ class SchedulerService:
                 current_time = now.strftime("%H:%M")
                 scheduled_time = config.get("time", "08:00")
 
+                # Mapeo de días de la semana (0 = lunes en Python)
+                day_mapping = {
+                    0: "monday", 1: "tuesday", 2: "wednesday", 3: "thursday",
+                    4: "friday", 5: "saturday", 6: "sunday"
+                }
+
+                current_day = day_mapping.get(now.weekday())
+                days_config = config.get("days", {})
+
                 # Calcular próxima ejecución para logs
                 self._calculate_next_execution(config, now)
 
-                # Ejecutar cada viernes a la hora configurada
+                # Verificar si hoy es un día programado y si es la hora configurada
                 should_execute = (
-                        now.weekday() == 4 and
+                        days_config.get(current_day, False) and
                         current_time == scheduled_time and
                         now.date() != last_execution_date.date()
                 )
 
                 if should_execute:
-                    self._log(f"⏰ Ejecutando reporte programado: viernes {scheduled_time}")
+                    self._log(f"⏰ Ejecutando reporte programado: {current_day} {scheduled_time}")
 
                     # Ejecutar reporte de manera thread-safe
                     success = self._execute_scheduled_report()
@@ -188,20 +197,35 @@ class SchedulerService:
     def _calculate_next_execution(self, config, current_time):
         """Calcula y guarda la próxima ejecución programada."""
         try:
+            days_config = config.get("days", {})
             scheduled_time = config.get("time", "08:00")
-            hour, minute = map(int, scheduled_time.split(":"))
 
-            # Calcular próximo viernes
-            days_ahead = (4 - current_time.weekday()) % 7
-            next_date = current_time.date() + timedelta(days=days_ahead)
-            scheduled_datetime = datetime.combine(next_date, datetime.min.time()).replace(
-                hour=hour, minute=minute
-            )
+            # Encontrar el próximo día programado
+            current_weekday = current_time.weekday()
 
-            if scheduled_datetime <= current_time:
-                scheduled_datetime += timedelta(days=7)
+            for i in range(7):  # Buscar en los próximos 7 días
+                check_day = (current_weekday + i) % 7
+                day_name = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"][check_day]
 
-            self.next_execution = scheduled_datetime
+                if days_config.get(day_name, False):
+                    # Calcular fecha y hora
+                    days_ahead = i
+                    hour, minute = map(int, scheduled_time.split(":"))
+
+                    # Si es hoy pero ya pasó la hora, buscar el siguiente día programado
+                    if i == 0:
+                        scheduled_datetime = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                        if scheduled_datetime <= current_time:
+                            continue  # Ya pasó la hora de hoy, buscar siguiente día
+                    else:
+                        next_date = current_time.date() + timedelta(days=days_ahead)
+                        scheduled_datetime = datetime.combine(next_date,
+                                                              datetime.min.time().replace(hour=hour, minute=minute))
+
+                    self.next_execution = scheduled_datetime
+                    break
+            else:
+                self.next_execution = None
 
         except Exception as e:
             self._log(f"⚠️ Error calculando próxima ejecución: {e}")
@@ -226,11 +250,6 @@ class SchedulerService:
             except Exception as e:
                 self._log(f"💥 Error al ejecutar reporte programado: {e}")
                 return False
-
-    def run_manual_report(self):
-        """Permite ejecutar el generador de reportes manualmente."""
-        self._log("🖐️ Ejecución manual del reporte solicitada")
-        return self._execute_scheduled_report()
 
     def _load_config(self):
         """Carga configuración de programación de manera segura."""

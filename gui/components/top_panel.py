@@ -20,7 +20,6 @@ from services.email_service import EmailService
 from services.scheduler_service import SchedulerService
 from services.search_service import SearchService
 from services.progress_service import ProgressService
-from services.weekly_report_service import WeeklyReportService
 
 
 class TopPanel:
@@ -39,7 +38,6 @@ class TopPanel:
         self.profile_manager = ProfileManager()
         self.report_service = ReportService()
         self.email_service = EmailService()
-        self.weekly_report_service = WeeklyReportService()
 
         # Inicializar el servicio de progreso
         self.progress_service = ProgressService(
@@ -96,34 +94,27 @@ class TopPanel:
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
-        self.weekly_report_btn = ttk.Button(
-            self.button_frame,
-            text="Generar Reporte Semanal",
-            command=self._generate_weekly_report_async
-        )
-        self.weekly_report_btn.grid(row=0, column=1, padx=(0, 5))
-
         # Botón de programación
         self.schedule_btn = ttk.Button(
             self.button_frame,
             text="Programar Envíos",
             command=self._open_scheduler_modal_safe
         )
-        self.schedule_btn.grid(row=0, column=2, padx=(0, 5))
+        self.schedule_btn.grid(row=0, column=1, padx=(0, 5))
 
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
             command=self._run_global_search_async
         )
-        self.search_all_btn.grid(row=0, column=3, padx=(0, 5))
+        self.search_all_btn.grid(row=0, column=2, padx=(0, 5))
 
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=4)
+        self.new_btn.grid(row=0, column=3)
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -562,44 +553,6 @@ class TopPanel:
         thread = threading.Thread(target=report_thread, daemon=True)
         thread.start()
 
-    def _generate_weekly_report_async(self):
-        """Genera un reporte semanal combinando adjuntos enviados."""
-        if self.is_searching or self.is_generating_report:
-            messagebox.showwarning(
-                "Operación en Progreso",
-                "Ya hay una operación en curso. Espera a que termine.",
-            )
-            return
-
-        self.is_generating_report = True
-        self._set_buttons_state("disabled")
-
-        self.progress_service.start_operation(
-            "Generación de Reporte Semanal",
-            1,
-            can_cancel=False,
-        )
-
-        def report_thread():
-            try:
-                report_path = self.weekly_report_service.generate_weekly_report()
-                if report_path:
-                    self.progress_service.complete_operation(
-                        f"Reporte semanal generado: {report_path}"
-                    )
-                else:
-                    self.progress_service.error_operation(
-                        "No se encontraron correos semanales con adjuntos."
-                    )
-            except Exception as e:
-                self.progress_service.error_operation(
-                    f"Error al generar reporte semanal: {e}"
-                )
-            finally:
-                self.parent_frame.after(0, lambda: self._finish_report_operation())
-
-        threading.Thread(target=report_thread, daemon=True).start()
-
     def _perform_report_generation_threaded(self, profiles):
         """Ejecuta la generación de reporte en un hilo separado."""
         try:
@@ -705,13 +658,7 @@ class TopPanel:
 
     def _set_buttons_state(self, state):
         """Cambia el estado de todos los botones principales."""
-        buttons = [
-            self.generate_report_btn,
-            self.weekly_report_btn,
-            self.schedule_btn,
-            self.search_all_btn,
-            self.new_btn,
-        ]
+        buttons = [self.generate_report_btn, self.schedule_btn, self.search_all_btn, self.new_btn]
         for btn in buttons:
             btn.config(state=state)
 
