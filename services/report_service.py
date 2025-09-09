@@ -130,7 +130,7 @@ class ReportService:
         headers = [
             "Nombre del Perfil",
             "Cantidad de ejecuciones",
-            "Ejecuciones Óptimas",
+            "Cantidad de Ejecuciones recomendadas",
             "Porcentaje de Éxito",
             "Bot Automático",
             "Bot Manual",
@@ -237,7 +237,7 @@ class ReportService:
         column_widths = {
             1: 30,  # Nombre del Perfil
             2: 20,  # Cantidad de ejecuciones
-            3: 18,  # Ejecuciones Óptimas
+            3: 35,  # Cantidad de Ejecuciones recomendadas
             4: 18,  # Porcentaje de Éxito
             5: 15,  # Bot Automático
             6: 12,  # Bot Manual
