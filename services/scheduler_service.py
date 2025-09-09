@@ -16,16 +16,21 @@ from pathlib import Path
 class SchedulerService:
     """Servicio optimizado para programación de tareas automáticas con threading mejorado."""
 
-    def __init__(self, report_generator=None, log_callback=None):
+    def __init__(self, report_generator=None, weekly_report_generator=None,
+                 monthly_report_generator=None, log_callback=None):
         """
         Inicializa el servicio de programación optimizado.
 
         Args:
-            report_generator: Función a llamar para generar reportes
+            report_generator: Función a llamar para generar reportes diarios
+            weekly_report_generator: Función para generar reportes semanales
+            monthly_report_generator: Función para generar reportes mensuales
             log_callback: Función para registrar logs
         """
         self.config_file = Path("config") / "scheduler_config.json"
         self.report_generator = report_generator
+        self.weekly_report_generator = weekly_report_generator
+        self.monthly_report_generator = monthly_report_generator
         self.log_callback = log_callback
 
         # Control de hilos mejorado
@@ -40,6 +45,10 @@ class SchedulerService:
         # Estado del scheduler
         self.current_config = None
         self.next_execution = None
+        self.last_weekly_execution = None
+        self.last_monthly_execution = None
+        self.weekly_time = "08:00"
+        self.monthly_time = "08:00"
 
         # Iniciar servicio de manera segura
         self._setup_scheduler()
@@ -179,6 +188,33 @@ class SchedulerService:
                                 break
                             consecutive_errors = 0  # Reset después de la pausa
 
+                # Reportes semanal y mensual automáticos
+                if self.weekly_report_generator:
+                    if current_day == "saturday" and current_time == self.weekly_time:
+                        if not self.last_weekly_execution or self.last_weekly_execution.date() != now.date():
+                            self._log("⏰ Ejecutando reporte semanal programado")
+                            success = self._execute_custom_report(self.weekly_report_generator)
+                            if success:
+                                self.last_weekly_execution = now
+                                self._log("✅ Reporte semanal ejecutado")
+                            else:
+                                self._log("❌ Error en reporte semanal programado")
+
+                if self.monthly_report_generator:
+                    next_day = now + timedelta(days=1)
+                    is_last_day = next_day.month != now.month
+                    if is_last_day and current_time == self.monthly_time:
+                        if not self.last_monthly_execution or (
+                                self.last_monthly_execution.month != now.month or
+                                self.last_monthly_execution.year != now.year):
+                            self._log("⏰ Ejecutando reporte mensual programado")
+                            success = self._execute_custom_report(self.monthly_report_generator)
+                            if success:
+                                self.last_monthly_execution = now
+                                self._log("✅ Reporte mensual ejecutado")
+                            else:
+                                self._log("❌ Error en reporte mensual programado")
+
                 # Esperar antes de la próxima verificación (30 segundos)
                 if self.stop_event.wait(30):
                     break
@@ -249,6 +285,21 @@ class SchedulerService:
 
             except Exception as e:
                 self._log(f"💥 Error al ejecutar reporte programado: {e}")
+                return False
+
+    def _execute_custom_report(self, generator):
+        """Ejecuta un generador de reportes personalizado de manera segura."""
+        with self.operation_lock:
+            try:
+                if generator:
+                    self.last_execution_time = datetime.now()
+                    result = generator()
+                    return bool(result)
+                else:
+                    self._log("⚠️ Generador de reportes no disponible")
+                    return False
+            except Exception as e:
+                self._log(f"💥 Error al ejecutar reporte: {e}")
                 return False
 
     def _load_config(self):

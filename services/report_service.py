@@ -6,8 +6,10 @@ seguimiento de ejecuciones óptimas con formato condicional por rangos y tipo de
 """
 
 import os
+import re
+import zipfile
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 try:
     import openpyxl
@@ -453,3 +455,51 @@ class ReportService:
             str: Ruta del directorio de reportes
         """
         return str(self.reports_dir)
+
+    def _get_report_date(self, file_path):
+        """Obtiene la fecha desde el nombre del archivo de reporte."""
+        name = file_path.name
+        match = re.search(r"reporte_perfiles_(\d{8})_", name)
+        if match:
+            try:
+                return datetime.strptime(match.group(1), "%Y%m%d").date()
+            except ValueError:
+                return None
+        return None
+
+    def _collect_reports(self, start_date, end_date):
+        """Recopila reportes existentes dentro de un rango de fechas."""
+        reports = []
+        for report in self.reports_dir.glob("reporte_perfiles_*.xlsx"):
+            report_date = self._get_report_date(report)
+            if report_date and start_date <= report_date <= end_date:
+                reports.append(report)
+        return reports
+
+    def generate_weekly_report(self):
+        """Genera un paquete ZIP con los reportes de la semana actual."""
+        today = datetime.now().date()
+        start_week = today - timedelta(days=today.weekday())
+        reports = self._collect_reports(start_week, today)
+        if not reports:
+            raise Exception("No se encontraron reportes para la semana actual")
+
+        zip_path = self.reports_dir / f"reporte_semanal_{today.strftime('%Y%m%d')}.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            for report in reports:
+                zf.write(report, arcname=report.name)
+        return str(zip_path)
+
+    def generate_monthly_report(self):
+        """Genera un paquete ZIP con los reportes del mes actual."""
+        today = datetime.now().date()
+        start_month = today.replace(day=1)
+        reports = self._collect_reports(start_month, today)
+        if not reports:
+            raise Exception("No se encontraron reportes para el mes actual")
+
+        zip_path = self.reports_dir / f"reporte_mensual_{today.strftime('%Y%m%d')}.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zf:
+            for report in reports:
+                zf.write(report, arcname=report.name)
+        return str(zip_path)
