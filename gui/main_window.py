@@ -6,6 +6,9 @@ Panel superior grande y dos paneles inferiores para gestión completa.
 
 import tkinter as tk
 from tkinter import ttk
+import os
+from pathlib import Path
+import sys
 from gui.components.top_panel import TopPanel
 from gui.components.bottom_left_panel import BottomLeftPanel
 from gui.components.bottom_right_panel import BottomRightPanel
@@ -26,6 +29,44 @@ class MainWindow:
         self.root.title("Bot de Búsqueda de Correos - v2.0")
         self.root.geometry("1400x800")
         self.root.minsize(800, 600)
+
+        # Establecer el icono personalizado
+        icon_path = None
+        possible_paths = [
+            Path("icon.ico"),
+            Path("resources") / "icon.ico",
+            Path("assets") / "icon.ico",
+            Path("images") / "icon.ico",
+            Path("gui") / "resources" / "icon.ico"
+        ]
+
+        for path in possible_paths:
+            if path.exists():
+                icon_path = str(path.absolute())
+                break
+
+        if icon_path:
+            # Establecer el icono para la ventana principal
+            self.root.iconbitmap(icon_path)
+
+            # Establecer el icono para la barra de tareas de Windows
+            if sys.platform.startswith('win'):
+                try:
+                    # Opción 1: Usar el método estándar de Windows para iconos de aplicación
+                    self.root.wm_iconbitmap(icon_path)
+
+                    # Opción 2: Para Windows 7+ (App ID para agrupación en la barra de tareas)
+                    try:
+                        import ctypes
+                        app_id = "com.botemailsearch.app"  # ID único para tu aplicación
+                        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+                    except Exception:
+                        pass
+
+                    # Opción 3: Enfoque adicional que puede ayudar en algunos casos
+                    self.root.call('wm', 'iconbitmap', self.root._w, icon_path)
+                except Exception as e:
+                    print(f"Error al establecer el icono de la barra de tareas: {e}")
 
         # Configurar estilo
         style = ttk.Style()
