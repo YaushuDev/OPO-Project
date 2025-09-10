@@ -1,8 +1,8 @@
 # gui/components/scheduler_modal.py
 """
 Modal para configurar programación de envío automático de reportes.
-Permite seleccionar días de la semana y hora para envío automático,
-así como configurar el envío semanal en un día específico.
+Implementa un diseño horizontal optimizado con dos columnas principales:
+configuración diaria a la izquierda y semanal a la derecha.
 """
 
 import tkinter as tk
@@ -14,11 +14,11 @@ from datetime import datetime
 
 
 class SchedulerModal:
-    """Modal para configurar programación de reportes diarios y semanales."""
+    """Modal optimizado con diseño horizontal para configuración de reportes diarios y semanales."""
 
     def __init__(self, parent, bottom_panel=None):
         """
-        Inicializa el modal de programación.
+        Inicializa el modal de programación con diseño horizontal.
 
         Args:
             parent: Widget padre
@@ -31,10 +31,10 @@ class SchedulerModal:
         # Crear directorio de configuración
         os.makedirs(Path("config"), exist_ok=True)
 
-        # Crear ventana modal
+        # Crear ventana modal optimizada para layout horizontal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Programación de Reportes")
-        self.modal.geometry("550x860")  # Aumentado para acomodar nueva sección
+        self.modal.geometry("800x600")  # Más ancho y menos alto para layout horizontal
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
@@ -73,30 +73,34 @@ class SchedulerModal:
         # Cargar configuración existente
         self._load_config()
 
-        # Configurar widgets
+        # Configurar widgets con layout horizontal
         self._setup_widgets()
 
     def _setup_widgets(self):
-        """Configura la interfaz del modal."""
+        """Configura la interfaz del modal con layout horizontal."""
         # Frame principal
         main_frame = ttk.Frame(self.modal, padding="25 25 25 25")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Título
+        # Configurar grid principal con dos columnas de igual ancho
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+
+        # Título general (ocupa ambas columnas)
         title_label = ttk.Label(
             main_frame,
             text="⏰ Programación de Reportes",
             font=("Arial", 14, "bold")
         )
-        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 25))
+        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
 
-        # ==== SECCIÓN DE REPORTES DIARIOS ====
+        # ==== SECCIÓN DE REPORTES DIARIOS (COLUMNA IZQUIERDA) ====
         daily_frame = ttk.LabelFrame(
             main_frame,
             text="Configuración de Reportes Diarios",
             padding="15 15 15 15"
         )
-        daily_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        daily_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
 
         # Switch para activar/desactivar programación diaria
         enable_switch = ttk.Checkbutton(
@@ -107,15 +111,15 @@ class SchedulerModal:
         )
         enable_switch.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
-        # Frame para días de la semana
+        # Frame para días de la semana (optimizado para layout vertical)
         days_frame = ttk.LabelFrame(
             daily_frame,
             text="Días de envío",
             padding="10 10 10 10"
         )
-        days_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        days_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(0, 15))
 
-        # Checkboxes para días
+        # Mapeo de días con nombres en español
         day_names = {
             "monday": "Lunes",
             "tuesday": "Martes",
@@ -126,21 +130,14 @@ class SchedulerModal:
             "sunday": "Domingo"
         }
 
-        # Crear 2 columnas de días
+        # Crear los checkboxes de días en una columna
         for i, (day_key, day_name) in enumerate(day_names.items()):
-            col = i % 2
-            row = i // 2
-
             day_check = ttk.Checkbutton(
                 days_frame,
                 text=day_name,
                 variable=self.days[day_key]
             )
-            day_check.grid(row=row, column=col, sticky="w", padx=10, pady=5)
-
-        # Configurar columnas de días
-        days_frame.columnconfigure(0, weight=1)
-        days_frame.columnconfigure(1, weight=1)
+            day_check.grid(row=i, column=0, sticky="w", padx=10, pady=2)
 
         # Frame para hora de envío diario
         daily_time_frame = ttk.LabelFrame(
@@ -148,12 +145,9 @@ class SchedulerModal:
             text="Hora de envío",
             padding="10 10 10 10"
         )
-        daily_time_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        daily_time_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(0, 10))
 
         # Selector de hora para reportes diarios
-        daily_time_frame.columnconfigure(0, weight=1)
-        daily_time_frame.columnconfigure(1, weight=1)
-
         hour_values = [f"{i:02d}" for i in range(24)]
         hour_combo = ttk.Combobox(
             daily_time_frame,
@@ -164,7 +158,7 @@ class SchedulerModal:
         )
         hour_combo.grid(row=0, column=0, sticky="e", padx=(0, 5))
 
-        ttk.Label(daily_time_frame, text=":").grid(row=0, column=1, sticky="nsew")
+        ttk.Label(daily_time_frame, text=":").grid(row=0, column=1)
 
         minute_values = [f"{i:02d}" for i in range(0, 60, 5)]
         minute_combo = ttk.Combobox(
@@ -176,17 +170,13 @@ class SchedulerModal:
         )
         minute_combo.grid(row=0, column=2, sticky="w", padx=(5, 0))
 
-        # ==== SEPARADOR ENTRE SECCIONES ====
-        separator = ttk.Separator(main_frame, orient="horizontal")
-        separator.grid(row=2, column=0, columnspan=2, sticky="ew", pady=15)
-
-        # ==== SECCIÓN DE REPORTES SEMANALES ====
+        # ==== SECCIÓN DE REPORTES SEMANALES (COLUMNA DERECHA) ====
         weekly_frame = ttk.LabelFrame(
             main_frame,
             text="Configuración de Reportes Semanales",
             padding="15 15 15 15"
         )
-        weekly_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        weekly_frame.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
 
         # Switch para activar/desactivar programación semanal
         weekly_enable_switch = ttk.Checkbutton(
@@ -198,14 +188,12 @@ class SchedulerModal:
         weekly_enable_switch.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 15))
 
         # Frame para día de la semana del reporte semanal
-        weekly_day_frame = ttk.Frame(weekly_frame)
-        weekly_day_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 15))
-
-        ttk.Label(
-            weekly_day_frame,
-            text="Día de envío semanal:",
-            font=("Arial", 10)
-        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        weekly_day_frame = ttk.LabelFrame(
+            weekly_frame,
+            text="Día de envío semanal",
+            padding="10 10 10 10"
+        )
+        weekly_day_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(0, 15))
 
         # Combobox para seleccionar el día de la semana
         weekly_day_combo = ttk.Combobox(
@@ -215,7 +203,7 @@ class SchedulerModal:
             state="readonly",
             width=15
         )
-        weekly_day_combo.grid(row=0, column=1, sticky="w")
+        weekly_day_combo.grid(row=0, column=0, pady=5)
 
         # Establecer textos legibles para el combobox
         weekly_day_combo.configure(values=list(day_names.values()))
@@ -243,12 +231,9 @@ class SchedulerModal:
             text="Hora de envío semanal",
             padding="10 10 10 10"
         )
-        weekly_time_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        weekly_time_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(0, 10))
 
         # Selector de hora para reportes semanales
-        weekly_time_frame.columnconfigure(0, weight=1)
-        weekly_time_frame.columnconfigure(1, weight=1)
-
         weekly_hour_combo = ttk.Combobox(
             weekly_time_frame,
             textvariable=self.weekly_hour,
@@ -258,7 +243,7 @@ class SchedulerModal:
         )
         weekly_hour_combo.grid(row=0, column=0, sticky="e", padx=(0, 5))
 
-        ttk.Label(weekly_time_frame, text=":").grid(row=0, column=1, sticky="nsew")
+        ttk.Label(weekly_time_frame, text=":").grid(row=0, column=1)
 
         weekly_minute_combo = ttk.Combobox(
             weekly_time_frame,
@@ -279,42 +264,41 @@ class SchedulerModal:
         )
         weekly_note.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(5, 0))
 
-        # Nota explicativa general
+        # Nota explicativa general (abajo de todo, ocupa ambas columnas)
         note_label = ttk.Label(
             main_frame,
-            text="Los reportes se generarán y enviarán automáticamente\nen los días y horas seleccionados.",
+            text="Los reportes se generarán y enviarán automáticamente en los días y horas seleccionados.\nSe implementará prevención de duplicados para evitar envíos múltiples.",
             font=("Arial", 9),
             foreground="gray",
             justify="center"
         )
-        note_label.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 20))
+        note_label.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(20, 20))
 
-        # Botones
+        # Botones (al fondo, centrados)
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=3, column=0, columnspan=2, sticky="ew")
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
         save_btn = ttk.Button(
             button_frame,
             text="Guardar",
-            command=self._save_config
+            command=self._save_config,
+            width=15
         )
         save_btn.grid(row=0, column=0, padx=(0, 5), sticky="e")
 
         close_btn = ttk.Button(
             button_frame,
             text="Cerrar",
-            command=self.modal.destroy
+            command=self.modal.destroy,
+            width=15
         )
         close_btn.grid(row=0, column=1, padx=(5, 0), sticky="w")
 
         # Configurar estado inicial
         self._toggle_daily_scheduler()
         self._toggle_weekly_scheduler()
-
-        # Configurar columnas expandibles
-        main_frame.columnconfigure(0, weight=1)
 
     def _center_window(self):
         """Centra la ventana en la pantalla."""
