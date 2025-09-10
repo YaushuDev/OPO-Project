@@ -2,7 +2,8 @@
 """
 Componente del panel superior del bot optimizado con threading.
 Previene bloqueos de UI durante operaciones pesadas como búsquedas IMAP y generación de reportes.
-Incluye indicadores de progreso y manejo asíncrono de operaciones.
+Incluye indicadores de progreso y manejo asíncrono de operaciones con opciones
+separadas para programación diaria y semanal.
 """
 
 import tkinter as tk
@@ -14,10 +15,11 @@ import time
 from pathlib import Path
 from gui.models.profile_manager import ProfileManager
 from gui.components.profile_modal import ProfileModal
-from gui.components.scheduler_modal import SchedulerModal
+from gui.components.daily_scheduler_modal import DailySchedulerModal
+from gui.components.weekly_scheduler_modal import WeeklySchedulerModal
 from services.report_service import ReportService
 from services.email_service import EmailService
-from services.scheduler_service import SchedulerService
+from services.scheduler_service import DailySchedulerService, WeeklySchedulerService
 from services.search_service import SearchService
 from services.progress_service import ProgressService
 
@@ -53,9 +55,18 @@ class TopPanel:
         self.is_generating_report = False
         self.is_generating_weekly_report = False
 
-        # Inicializar el servicio de programación con referencia a ambas funciones generadoras
-        self.scheduler_service = SchedulerService(
+        # Ruta al archivo de configuración
+        self.config_file = Path("config") / "scheduler_config.json"
+
+        # Inicializar los servicios de programación separados
+        self.daily_scheduler = DailySchedulerService(
+            self.config_file,
             report_generator=self._generate_scheduled_report,
+            log_callback=self._add_log
+        )
+
+        self.weekly_scheduler = WeeklySchedulerService(
+            self.config_file,
             weekly_report_generator=self._generate_scheduled_weekly_report,
             log_callback=self._add_log
         )
@@ -104,27 +115,35 @@ class TopPanel:
         )
         self.generate_weekly_report_btn.grid(row=0, column=1, padx=(0, 5))
 
-        # Botón de programación
-        self.schedule_btn = ttk.Button(
+        # Botón de programación diaria
+        self.schedule_daily_btn = ttk.Button(
             self.button_frame,
-            text="Programar Envíos",
-            command=self._open_scheduler_modal_safe
+            text="Programar Diarios",
+            command=self._open_daily_scheduler_modal
         )
-        self.schedule_btn.grid(row=0, column=2, padx=(0, 5))
+        self.schedule_daily_btn.grid(row=0, column=2, padx=(0, 5))
+
+        # Botón de programación semanal
+        self.schedule_weekly_btn = ttk.Button(
+            self.button_frame,
+            text="Programar Semanales",
+            command=self._open_weekly_scheduler_modal
+        )
+        self.schedule_weekly_btn.grid(row=0, column=3, padx=(0, 5))
 
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
             command=self._run_global_search_async
         )
-        self.search_all_btn.grid(row=0, column=3, padx=(0, 5))
+        self.search_all_btn.grid(row=0, column=4, padx=(0, 5))
 
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=4)
+        self.new_btn.grid(row=0, column=5)
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -301,42 +320,86 @@ class TopPanel:
 
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
-    def _open_scheduler_modal_safe(self):
-        """Abre el modal de programación de manera segura."""
-        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
-            messagebox.showwarning(
-                "Operación en Progreso",
-                "Hay una operación en curso. Espera a que termine antes de configurar la programación."
-            )
+    def _open_daily_scheduler_modal(self):
+        """Abre el modal de programación diaria de manera segura."""
+        if self._check_operation_in_progress():
             return
 
         try:
             if self.bottom_right_panel:
                 self.bottom_right_panel.add_log_entry(
-                    "Abriendo configuración de programación de reportes diarios y semanales")
+                    "Abriendo configuración de programación de reportes diarios")
 
             # Deshabilitar botón temporalmente
-            self.schedule_btn.config(state="disabled")
+            self.schedule_daily_btn.config(state="disabled")
 
             # Abrir modal de configuración
-            scheduler_modal = SchedulerModal(self.parent_frame, self.bottom_right_panel)
+            daily_scheduler_modal = DailySchedulerModal(self.parent_frame, self.bottom_right_panel)
 
             # Programar rehabilitación del botón y reinicio del servicio
             def restore_and_restart():
-                self.schedule_btn.config(state="normal")
+                self.schedule_daily_btn.config(state="normal")
                 # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
                 try:
-                    self.scheduler_service.restart()
-                    self._add_log("✅ Configuración de programación actualizada")
+                    self.daily_scheduler.restart()
+                    self._add_log("✅ Configuración de programación diaria actualizada")
                 except Exception as e:
-                    self._add_log(f"⚠️ Error al reiniciar programación: {e}")
+                    self._add_log(f"⚠️ Error al reiniciar programación diaria: {e}")
 
             self.parent_frame.after(1000, restore_and_restart)
 
         except Exception as e:
-            self.schedule_btn.config(state="normal")
-            self._add_log(f"❌ Error al abrir configuración de programación: {e}")
+            self.schedule_daily_btn.config(state="normal")
+            self._add_log(f"❌ Error al abrir configuración de programación diaria: {e}")
             messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
+
+    def _open_weekly_scheduler_modal(self):
+        """Abre el modal de programación semanal de manera segura."""
+        if self._check_operation_in_progress():
+            return
+
+        try:
+            if self.bottom_right_panel:
+                self.bottom_right_panel.add_log_entry(
+                    "Abriendo configuración de programación de reportes semanales")
+
+            # Deshabilitar botón temporalmente
+            self.schedule_weekly_btn.config(state="disabled")
+
+            # Abrir modal de configuración
+            weekly_scheduler_modal = WeeklySchedulerModal(self.parent_frame, self.bottom_right_panel)
+
+            # Programar rehabilitación del botón y reinicio del servicio
+            def restore_and_restart():
+                self.schedule_weekly_btn.config(state="normal")
+                # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
+                try:
+                    self.weekly_scheduler.restart()
+                    self._add_log("✅ Configuración de programación semanal actualizada")
+                except Exception as e:
+                    self._add_log(f"⚠️ Error al reiniciar programación semanal: {e}")
+
+            self.parent_frame.after(1000, restore_and_restart)
+
+        except Exception as e:
+            self.schedule_weekly_btn.config(state="normal")
+            self._add_log(f"❌ Error al abrir configuración de programación semanal: {e}")
+            messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
+
+    def _check_operation_in_progress(self):
+        """
+        Verifica si hay una operación en progreso.
+
+        Returns:
+            bool: True si hay una operación en progreso, False en caso contrario
+        """
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
+            messagebox.showwarning(
+                "Operación en Progreso",
+                "Hay una operación en curso. Espera a que termine antes de configurar la programación."
+            )
+            return True
+        return False
 
     def _edit_profile(self, profile):
         """Abre el modal para editar un perfil."""
@@ -756,26 +819,23 @@ class TopPanel:
 
     def _set_buttons_state(self, state):
         """Cambia el estado de todos los botones principales."""
-        buttons = [self.generate_report_btn, self.generate_weekly_report_btn, self.schedule_btn, self.search_all_btn,
-                   self.new_btn]
+        buttons = [self.generate_report_btn, self.generate_weekly_report_btn,
+                   self.schedule_daily_btn, self.schedule_weekly_btn,
+                   self.search_all_btn, self.new_btn]
         for btn in buttons:
             btn.config(state=state)
 
-    def _generate_scheduled_report(self, is_weekly=False):
+    def _generate_scheduled_report(self):
         """
-        Genera y envía reporte programado sin interacción del usuario.
+        Genera y envía reporte diario programado sin interacción del usuario.
 
-        Args:
-            is_weekly (bool): Indica si se trata de un reporte semanal
+        Returns:
+            bool: True si se generó correctamente, False en caso contrario
         """
-        # Si es reporte semanal, redirigir al método especializado
-        if is_weekly:
-            return self._generate_scheduled_weekly_report()
-
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
-            self._add_log("No hay perfiles para generar reporte programado")
+            self._add_log("No hay perfiles para generar reporte diario programado")
             return False
 
         summary = self.profile_manager.get_profiles_summary()
@@ -787,7 +847,7 @@ class TopPanel:
 
         try:
             # Actualizar datos antes de generar reporte programado
-            self._add_log("🔄 Actualizando datos para reporte programado...")
+            self._add_log("🔄 Actualizando datos para reporte diario programado...")
 
             # Ejecutar búsqueda silenciosa en el hilo principal (para reportes programados)
             total_updated = 0
@@ -804,7 +864,7 @@ class TopPanel:
             updated_summary = self.profile_manager.get_profiles_summary()
 
             report_path = self.report_service.generate_profiles_report(updated_profiles)
-            self._add_log(f"📊 Reporte programado generado: {report_path}")
+            self._add_log(f"📊 Reporte diario programado generado: {report_path}")
 
             # Enviar por correo
             success = self.email_service.send_report(report_path)
@@ -812,22 +872,27 @@ class TopPanel:
             if success:
                 optimal_count = updated_summary['optimal_profiles']
                 self._add_log(
-                    f"✅ Reporte programado enviado con datos actualizados "
+                    f"✅ Reporte diario programado enviado con datos actualizados "
                     f"({optimal_count} perfiles óptimos, {total_updated} ejecuciones totales)"
                 )
                 self._add_log("=" * 40)
                 return True
             else:
-                self._add_log("❌ Error al enviar reporte programado por correo")
+                self._add_log("❌ Error al enviar reporte diario programado por correo")
                 return False
 
         except Exception as e:
-            error_msg = f"💥 Error al generar reporte programado: {e}"
+            error_msg = f"💥 Error al generar reporte diario programado: {e}"
             self._add_log(error_msg)
             return False
 
     def _generate_scheduled_weekly_report(self):
-        """Genera y envía reporte semanal programado sin interacción del usuario."""
+        """
+        Genera y envía reporte semanal programado sin interacción del usuario.
+
+        Returns:
+            bool: True si se generó correctamente, False en caso contrario
+        """
         self._add_log("=" * 40)
         self._add_log("📅 REPORTE SEMANAL PROGRAMADO INICIADO")
 
@@ -889,7 +954,7 @@ class TopPanel:
             "manual_bots": manual_bots,
             "enhanced_search": True,
             "weekly_reports": True,
-            "enhanced_search": True,
-            "weekly_reports": True,
+            "daily_scheduler": True,
+            "weekly_scheduler": True,
             "optimized_ui": True
         }
