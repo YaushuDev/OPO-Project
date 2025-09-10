@@ -1,13 +1,13 @@
 # report_service.py
 """
 Servicio para generar reportes Excel optimizados de perfiles de búsqueda.
-Crea archivos Excel con título general, información esencial de los perfiles,
-seguimiento de ejecuciones óptimas con formato condicional por rangos y tipo de bot.
+Crea archivos Excel con información esencial, seguimiento de ejecuciones óptimas
+con formato condicional por rangos y generación de reportes semanales mejorados
+que calculan correctamente los porcentajes de éxito basados en objetivos semanales.
 """
 
 import os
-import re
-import zipfile
+import glob
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -21,7 +21,7 @@ except ImportError:
 
 
 class ReportService:
-    """Servicio para generar reportes optimizados en formato Excel con seguimiento de ejecuciones óptimas y tipo de bot."""
+    """Servicio para generar reportes optimizados en formato Excel con cálculo corregido de éxito semanal."""
 
     def __init__(self):
         """Inicializa el servicio de reportes."""
@@ -30,17 +30,13 @@ class ReportService:
 
     def generate_profiles_report(self, profiles):
         """
-        Genera un reporte Excel optimizado con título general e información esencial de perfiles,
-        incluyendo seguimiento de ejecuciones óptimas con colores condicionales por rangos y tipo de bot.
+        Genera un reporte Excel diario con información esencial de perfiles.
 
         Args:
             profiles (list): Lista de perfiles de búsqueda
 
         Returns:
             str: Ruta del archivo Excel generado
-
-        Raises:
-            Exception: Si openpyxl no está instalado o hay error en la generación
         """
         if openpyxl is None:
             raise Exception("openpyxl no está instalado. Ejecute: pip install openpyxl")
@@ -55,80 +51,333 @@ class ReportService:
         worksheet = workbook.active
         worksheet.title = "Perfiles de Búsqueda"
 
-        # Configurar estilos con colores aRGB corregidos
-        # Estilo para título principal
-        title_font = Font(bold=True, size=16, color="FFFFFF")
-        title_fill = PatternFill(start_color="FF2E5090", end_color="FF2E5090", fill_type="solid")
-        title_alignment = Alignment(horizontal="center", vertical="center")
+        # Configurar estilos
+        styles = self._get_report_styles()
 
-        # Estilo para subtítulo
-        subtitle_font = Font(bold=True, size=12, color="000000")
-        subtitle_alignment = Alignment(horizontal="center", vertical="center")
+        # Crear título general
+        self._add_daily_header(worksheet, len(profiles), styles)
 
-        # Estilo para encabezados de tabla
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="FF366092", end_color="FF366092", fill_type="solid")
-        header_alignment = Alignment(horizontal="center", vertical="center")
+        # Configurar encabezados de tabla
+        self._add_table_headers(worksheet, styles)
 
-        # NUEVOS ESTILOS PARA PORCENTAJE DE ÉXITO POR RANGOS
-        # 100%: Verde
-        success_100_fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90", fill_type="solid")
-        success_100_font = Font(bold=True, color="006400")
+        # Escribir datos de perfiles
+        self._add_profile_data(worksheet, profiles, styles)
 
-        # 90-50%: Morado
-        success_90_50_fill = PatternFill(start_color="FFE6E6FA", end_color="FFE6E6FA", fill_type="solid")
-        success_90_50_font = Font(bold=True, color="800080")
+        # Ajustar formato
+        self._format_daily_worksheet(worksheet)
 
-        # 50-30%: Amarillo
-        success_50_30_fill = PatternFill(start_color="FFFFFF99", end_color="FFFFFF99", fill_type="solid")
-        success_50_30_font = Font(bold=True, color="B8860B")
+        # Agregar hoja de resumen
+        summary_sheet = workbook.create_sheet("Resumen")
+        self._add_summary_sheet(summary_sheet, profiles)
 
-        # <30%: Rojo
-        success_low_fill = PatternFill(start_color="FFFFCCCC", end_color="FFFFCCCC", fill_type="solid")
-        success_low_font = Font(bold=True, color="CC0000")
+        # Guardar archivo
+        workbook.save(file_path)
+        return str(file_path)
 
-        # NUEVO ESTILO PARA TIPOS DE BOT: ROSA UNIFORME
-        bot_fill = PatternFill(start_color="FFFFC0CB", end_color="FFFFC0CB", fill_type="solid")  # Rosa claro
-        bot_font = Font(bold=True, color="C71585")  # Rosa oscuro/magenta
+    def generate_weekly_profiles_report(self):
+        """
+        Genera un reporte semanal con cálculo corregido de porcentajes de éxito.
+        Multiplica las ejecuciones óptimas diarias por 7 para obtener el objetivo semanal.
 
-        border_style = Side(border_style="thin", color="000000")
-        border = Border(top=border_style, bottom=border_style, left=border_style, right=border_style)
+        Returns:
+            str: Ruta del archivo Excel generado
+        """
+        if openpyxl is None:
+            raise Exception("openpyxl no está instalado. Ejecute: pip install openpyxl")
 
-        # === AGREGAR TÍTULO GENERAL (FILAS 1 Y 2) ===
+        # Obtener fechas de la semana actual
+        today = datetime.now().date()
+        start_of_week = today - timedelta(days=today.weekday())
+        end_of_week = start_of_week + timedelta(days=6)
 
-        # Fila 1: Título principal
+        # Buscar y procesar reportes de la semana
+        weekly_data = self._process_weekly_reports(start_of_week, end_of_week)
+
+        if not weekly_data['reports_found']:
+            raise Exception("No se encontraron reportes diarios para la semana actual")
+
+        # Crear archivo de reporte semanal
+        file_path = self._create_weekly_file(start_of_week, end_of_week)
+
+        # Generar reporte
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Reporte Semanal"
+
+        # Configurar estilos
+        styles = self._get_report_styles()
+
+        # Crear contenido del reporte
+        self._add_weekly_header(worksheet, start_of_week, end_of_week, len(weekly_data['aggregated_data']), styles)
+        self._add_table_headers(worksheet, styles)
+        self._add_weekly_profile_data(worksheet, weekly_data['aggregated_data'], styles)
+        self._format_daily_worksheet(worksheet)
+
+        # Agregar resumen semanal
+        summary_sheet = workbook.create_sheet("Resumen Semanal")
+        self._add_weekly_summary_sheet(summary_sheet, weekly_data, start_of_week, end_of_week)
+
+        workbook.save(file_path)
+        return str(file_path)
+
+    def _process_weekly_reports(self, start_of_week, end_of_week):
+        """Procesa los reportes diarios de la semana y agrega los datos correctamente."""
+        weekly_reports = []
+        pattern = str(self.reports_dir / "reporte_perfiles_*.xlsx")
+
+        # Buscar archivos de la semana
+        for file_path in glob.glob(pattern):
+            try:
+                file_name = os.path.basename(file_path)
+                date_part = file_name.split('_')[2].split('.')[0][:8]
+                file_date = datetime.strptime(date_part, "%Y%m%d").date()
+
+                if start_of_week <= file_date <= end_of_week:
+                    weekly_reports.append(file_path)
+            except (ValueError, IndexError):
+                continue
+
+        # Procesar datos agregados
+        aggregated_data = {}
+
+        for report_path in weekly_reports:
+            try:
+                wb = openpyxl.load_workbook(report_path, data_only=True)
+                ws = wb.active
+
+                for row in range(5, ws.max_row + 1):
+                    profile_name = ws.cell(row=row, column=1).value
+                    if not profile_name:
+                        continue
+
+                    executions = ws.cell(row=row, column=2).value or 0
+                    optimal_cell = ws.cell(row=row, column=3).value
+                    success_display = ws.cell(row=row, column=4).value
+                    is_automatic = ws.cell(row=row, column=5).value == "X"
+                    is_manual = ws.cell(row=row, column=6).value == "X"
+                    last_search = ws.cell(row=row, column=7).value
+
+                    # Procesar ejecuciones óptimas
+                    daily_optimal = self._extract_optimal_value(optimal_cell)
+                    has_tracking = daily_optimal > 0
+
+                    if profile_name not in aggregated_data:
+                        aggregated_data[profile_name] = {
+                            'executions': 0,
+                            'daily_optimal': daily_optimal,
+                            'weekly_optimal': daily_optimal * 7 if has_tracking else 0,
+                            'has_tracking': has_tracking,
+                            'is_automatic': is_automatic,
+                            'is_manual': is_manual,
+                            'last_search': last_search
+                        }
+
+                    # Acumular ejecuciones
+                    aggregated_data[profile_name]['executions'] += executions
+
+                    # Actualizar última búsqueda si es más reciente
+                    if last_search and (not aggregated_data[profile_name]['last_search'] or
+                                        last_search > aggregated_data[profile_name]['last_search']):
+                        aggregated_data[profile_name]['last_search'] = last_search
+
+            except Exception as e:
+                print(f"Error procesando archivo {report_path}: {e}")
+                continue
+
+        return {
+            'aggregated_data': aggregated_data,
+            'reports_found': len(weekly_reports),
+            'reports_count': len(weekly_reports)
+        }
+
+    def _extract_optimal_value(self, optimal_cell):
+        """Extrae el valor numérico de ejecuciones óptimas de la celda."""
+        if not optimal_cell:
+            return 0
+
+        if isinstance(optimal_cell, (int, float)):
+            return max(0, int(optimal_cell))
+
+        if isinstance(optimal_cell, str):
+            # Extraer número de strings como "🎯 30" o "➖ Deshabilitado"
+            import re
+            if "deshabilitado" in optimal_cell.lower() or "n/a" in optimal_cell.lower():
+                return 0
+
+            match = re.search(r'\d+', optimal_cell)
+            if match:
+                return int(match.group())
+
+        return 0
+
+    def _calculate_weekly_success_percentage(self, executions, weekly_optimal):
+        """Calcula el porcentaje de éxito semanal correctamente."""
+        if weekly_optimal <= 0:
+            return None
+        return (executions / weekly_optimal) * 100
+
+    def _get_success_format(self, percentage):
+        """Obtiene el formato apropiado basado en el porcentaje de éxito."""
+        if percentage is None:
+            return "N/A", None, None
+
+        if percentage >= 100.0:
+            return f"✅ {percentage:.1f}%", "FF90EE90", "006400"
+        elif percentage >= 90.0:
+            return f"📊 {percentage:.1f}%", "FFE6E6FA", "800080"
+        elif percentage >= 50.0:
+            return f"📊 {percentage:.1f}%", "FFE6E6FA", "800080"
+        elif percentage >= 30.0:
+            return f"⚠️ {percentage:.1f}%", "FFFFFF99", "B8860B"
+        else:
+            return f"❌ {percentage:.1f}%", "FFFFCCCC", "CC0000"
+
+    def _add_weekly_profile_data(self, worksheet, aggregated_data, styles):
+        """Agrega los datos de perfiles al reporte semanal con cálculos corregidos."""
+        row_num = 5
+
+        for profile_name, data in aggregated_data.items():
+            # Nombre del Perfil
+            cell = worksheet.cell(row=row_num, column=1)
+            cell.value = profile_name
+            cell.border = styles['border']
+
+            # Ejecuciones Acumuladas
+            cell = worksheet.cell(row=row_num, column=2)
+            cell.value = data['executions']
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Ejecuciones Óptimas Semanales
+            cell = worksheet.cell(row=row_num, column=3)
+            if data['has_tracking']:
+                cell.value = f"🎯 {data['weekly_optimal']} (7 días)"
+            else:
+                cell.value = "➖ Deshabilitado"
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Porcentaje de Éxito Semanal (CORREGIDO)
+            cell = worksheet.cell(row=row_num, column=4)
+            success_percentage = self._calculate_weekly_success_percentage(
+                data['executions'], data['weekly_optimal']
+            )
+
+            success_display, fill_color, font_color = self._get_success_format(success_percentage)
+            cell.value = success_display
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            if fill_color and font_color:
+                cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+                cell.font = Font(bold=True, color=font_color)
+
+            # Bot Automático
+            cell = worksheet.cell(row=row_num, column=5)
+            if data['is_automatic']:
+                cell.value = "X"
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Bot Manual
+            cell = worksheet.cell(row=row_num, column=6)
+            if data['is_manual']:
+                cell.value = "X"
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Última Búsqueda
+            cell = worksheet.cell(row=row_num, column=7)
+            cell.value = data['last_search'] if data['last_search'] else "Nunca"
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            row_num += 1
+
+    def _get_report_styles(self):
+        """Define los estilos reutilizables para los reportes."""
+        return {
+            'title_font': Font(bold=True, size=16, color="FFFFFF"),
+            'title_fill': PatternFill(start_color="FF2E5090", end_color="FF2E5090", fill_type="solid"),
+            'title_alignment': Alignment(horizontal="center", vertical="center"),
+            'subtitle_font': Font(bold=True, size=12, color="000000"),
+            'subtitle_alignment': Alignment(horizontal="center", vertical="center"),
+            'header_font': Font(bold=True, color="FFFFFF"),
+            'header_fill': PatternFill(start_color="FF366092", end_color="FF366092", fill_type="solid"),
+            'header_alignment': Alignment(horizontal="center", vertical="center"),
+            'bot_fill': PatternFill(start_color="FFFFC0CB", end_color="FFFFC0CB", fill_type="solid"),
+            'bot_font': Font(bold=True, color="C71585"),
+            'border': Border(
+                top=Side(border_style="thin", color="000000"),
+                bottom=Side(border_style="thin", color="000000"),
+                left=Side(border_style="thin", color="000000"),
+                right=Side(border_style="thin", color="000000")
+            )
+        }
+
+    def _add_daily_header(self, worksheet, total_bots, styles):
+        """Agrega el encabezado para reportes diarios."""
         worksheet.merge_cells('A1:G1')
         title_cell = worksheet['A1']
         title_cell.value = "Reporte de Ejecuciones - Registro Diario"
-        title_cell.font = title_font
-        title_cell.fill = title_fill
-        title_cell.alignment = title_alignment
-        title_cell.border = border
+        title_cell.font = styles['title_font']
+        title_cell.fill = styles['title_fill']
+        title_cell.alignment = styles['title_alignment']
+        title_cell.border = styles['border']
 
-        # Aplicar borde a todas las celdas del título fusionado
-        for col in range(1, 8):  # A1 hasta G1
-            cell = worksheet.cell(row=1, column=col)
-            cell.border = border
-
-        # Fila 2: Información de generación
-        current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        total_bots = len(profiles)
+        for col in range(1, 8):
+            worksheet.cell(row=1, column=col).border = styles['border']
 
         worksheet.merge_cells('A2:G2')
         subtitle_cell = worksheet['A2']
+        current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         subtitle_cell.value = f"Generado el {current_date} - Total de Bots: {total_bots}"
-        subtitle_cell.font = subtitle_font
-        subtitle_cell.alignment = subtitle_alignment
+        subtitle_cell.font = styles['subtitle_font']
+        subtitle_cell.alignment = styles['subtitle_alignment']
 
-        # Aplicar borde a todas las celdas del subtítulo fusionado
-        for col in range(1, 8):  # A2 hasta G2
-            cell = worksheet.cell(row=2, column=col)
-            cell.border = border
+        for col in range(1, 8):
+            worksheet.cell(row=2, column=col).border = styles['border']
 
-        # Fila vacía de separación
         worksheet.row_dimensions[3].height = 10
 
-        # === CONFIGURAR ENCABEZADOS DE TABLA (FILA 4) ===
+    def _add_weekly_header(self, worksheet, start_date, end_date, total_bots, styles):
+        """Agrega el encabezado para reportes semanales."""
+        week_number = start_date.isocalendar()[1]
+
+        worksheet.merge_cells('A1:G1')
+        title_cell = worksheet['A1']
+        title_cell.value = f"Reporte de Ejecuciones - Resumen Semanal (Semana {week_number})"
+        title_cell.font = styles['title_font']
+        title_cell.fill = styles['title_fill']
+        title_cell.alignment = styles['title_alignment']
+        title_cell.border = styles['border']
+
+        for col in range(1, 8):
+            worksheet.cell(row=1, column=col).border = styles['border']
+
+        worksheet.merge_cells('A2:G2')
+        subtitle_cell = worksheet['A2']
+        current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        period_text = f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+        subtitle_cell.value = f"Generado el {current_date} - Período: {period_text}"
+        subtitle_cell.font = styles['subtitle_font']
+        subtitle_cell.alignment = styles['subtitle_alignment']
+
+        for col in range(1, 8):
+            worksheet.cell(row=2, column=col).border = styles['border']
+
+        worksheet.row_dimensions[3].height = 10
+
+    def _add_table_headers(self, worksheet, styles):
+        """Agrega los encabezados de la tabla."""
         headers = [
             "Nombre del Perfil",
             "Cantidad de ejecuciones",
@@ -139,92 +388,71 @@ class ReportService:
             "Última Búsqueda"
         ]
 
-        # Escribir encabezados en fila 4
         for col_num, header in enumerate(headers, 1):
             cell = worksheet.cell(row=4, column=col_num)
             cell.value = header
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_alignment
-            cell.border = border
+            cell.font = styles['header_font']
+            cell.fill = styles['header_fill']
+            cell.alignment = styles['header_alignment']
+            cell.border = styles['border']
 
-        # === ESCRIBIR DATOS DE PERFILES (DESDE FILA 5) ===
+    def _add_profile_data(self, worksheet, profiles, styles):
+        """Agrega los datos de perfiles para reporte diario."""
         for row_num, profile in enumerate(profiles, 5):
             # Nombre del Perfil
             cell = worksheet.cell(row=row_num, column=1)
             cell.value = profile.name
-            cell.border = border
+            cell.border = styles['border']
 
             # Cantidad de ejecuciones
             cell = worksheet.cell(row=row_num, column=2)
             cell.value = profile.found_emails
             cell.alignment = Alignment(horizontal="center")
-            cell.border = border
+            cell.border = styles['border']
 
             # Ejecuciones Óptimas
             cell = worksheet.cell(row=row_num, column=3)
             cell.value = profile.get_optimal_display()
             cell.alignment = Alignment(horizontal="center")
-            cell.border = border
+            cell.border = styles['border']
 
-            # PORCENTAJE DE ÉXITO CON COLORES POR RANGOS
+            # Porcentaje de Éxito
             cell = worksheet.cell(row=row_num, column=4)
             success_display = profile.get_success_display()
             success_percentage = profile.get_success_percentage()
 
             cell.value = success_display
             cell.alignment = Alignment(horizontal="center")
-            cell.border = border
+            cell.border = styles['border']
 
-            # Aplicar formato condicional por rangos
+            # Aplicar formato condicional
             if success_percentage is not None:
-                if success_percentage >= 100.0:
-                    # 100%: Verde con ✅
-                    cell.fill = success_100_fill
-                    cell.font = success_100_font
-                    cell.value = f"✅ {success_display}"
-                elif success_percentage >= 90.0:
-                    # 90-99%: Morado con 📊
-                    cell.fill = success_90_50_fill
-                    cell.font = success_90_50_font
-                    cell.value = f"📊 {success_display}"
-                elif success_percentage >= 50.0:
-                    # 50-89%: Morado con 📊
-                    cell.fill = success_90_50_fill
-                    cell.font = success_90_50_font
-                    cell.value = f"📊 {success_display}"
-                elif success_percentage >= 30.0:
-                    # 30-49%: Amarillo con ⚠️
-                    cell.fill = success_50_30_fill
-                    cell.font = success_50_30_font
-                    cell.value = f"⚠️ {success_display}"
-                else:
-                    # <30%: Rojo con ❌
-                    cell.fill = success_low_fill
-                    cell.font = success_low_font
-                    cell.value = f"❌ {success_display}"
+                _, fill_color, font_color = self._get_success_format(success_percentage)
+                if fill_color and font_color:
+                    cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+                    cell.font = Font(bold=True, color=font_color)
 
-            # COLUMNA BOT AUTOMÁTICO: ROSA CON X
+            # Bot Automático
             cell = worksheet.cell(row=row_num, column=5)
             if profile.is_bot_automatic():
                 cell.value = "X"
-                cell.fill = bot_fill
-                cell.font = bot_font
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
             else:
                 cell.value = ""
             cell.alignment = Alignment(horizontal="center")
-            cell.border = border
+            cell.border = styles['border']
 
-            # COLUMNA BOT MANUAL: ROSA CON X
+            # Bot Manual
             cell = worksheet.cell(row=row_num, column=6)
             if profile.is_bot_manual():
                 cell.value = "X"
-                cell.fill = bot_fill
-                cell.font = bot_font
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
             else:
                 cell.value = ""
             cell.alignment = Alignment(horizontal="center")
-            cell.border = border
+            cell.border = styles['border']
 
             # Última Búsqueda
             cell = worksheet.cell(row=row_num, column=7)
@@ -233,273 +461,82 @@ class ReportService:
             else:
                 cell.value = "Nunca"
             cell.alignment = Alignment(horizontal="center")
-            cell.border = border
+            cell.border = styles['border']
 
-        # === AJUSTAR ANCHO DE COLUMNAS ===
+    def _format_daily_worksheet(self, worksheet):
+        """Aplica formato general a la hoja de trabajo."""
         column_widths = {
-            1: 30,  # Nombre del Perfil
-            2: 20,  # Cantidad de ejecuciones
-            3: 35,  # Cantidad de Ejecuciones recomendadas
-            4: 18,  # Porcentaje de Éxito
-            5: 15,  # Bot Automático
-            6: 12,  # Bot Manual
-            7: 22  # Última Búsqueda
+            1: 30, 2: 20, 3: 35, 4: 18, 5: 15, 6: 12, 7: 22
         }
 
         for col_num, width in column_widths.items():
             worksheet.column_dimensions[get_column_letter(col_num)].width = width
 
-        # Ajustar altura de las filas del título
         worksheet.row_dimensions[1].height = 25
         worksheet.row_dimensions[2].height = 20
 
-        # Agregar hoja de resumen ampliada
-        summary_sheet = workbook.create_sheet("Resumen")
-        self._add_summary_sheet(summary_sheet, profiles)
-
-        # Guardar archivo
-        workbook.save(file_path)
-
-        return str(file_path)
+    def _create_weekly_file(self, start_date, end_date):
+        """Crea el nombre y ruta del archivo de reporte semanal."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        week_number = start_date.isocalendar()[1]
+        filename = f"reporte_semanal_{timestamp}_semana{week_number}.xlsx"
+        return self.reports_dir / filename
 
     def _add_summary_sheet(self, worksheet, profiles):
-        """
-        Agrega hoja de resumen optimizada al reporte incluyendo métricas de seguimiento óptimo y tipos de bot.
-
-        Args:
-            worksheet: Hoja de trabajo de Excel
-            profiles (list): Lista de perfiles
-        """
-        # Título principal
-        worksheet.cell(row=1, column=1).value = "RESUMEN EJECUTIVO"
+        """Agrega hoja de resumen para reporte diario."""
+        worksheet.cell(row=1, column=1).value = "RESUMEN EJECUTIVO - DIARIO"
         worksheet.cell(row=1, column=1).font = Font(bold=True, size=16, color="366092")
         worksheet.merge_cells('A1:B1')
 
-        # Información general
+        current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         worksheet.cell(row=3, column=1).value = "Fecha de generación:"
         worksheet.cell(row=3, column=1).font = Font(bold=True)
-        worksheet.cell(row=3, column=2).value = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        worksheet.cell(row=3, column=2).value = current_date
 
         worksheet.cell(row=4, column=1).value = "Total de bots:"
         worksheet.cell(row=4, column=1).font = Font(bold=True)
         worksheet.cell(row=4, column=2).value = len(profiles)
 
-        # Estadísticas principales
-        active_profiles = len([p for p in profiles if p.last_search])
-        inactive_profiles = len(profiles) - active_profiles
-        total_executions = sum(p.found_emails for p in profiles)
-        total_criteria = sum(len(p.search_criteria) for p in profiles)
-
-        worksheet.cell(row=6, column=1).value = "MÉTRICAS PRINCIPALES"
-        worksheet.cell(row=6, column=1).font = Font(bold=True, size=14, color="366092")
-
-        worksheet.cell(row=7, column=1).value = "Bots activos:"
-        worksheet.cell(row=7, column=1).font = Font(bold=True)
-        worksheet.cell(row=7, column=2).value = active_profiles
-
-        worksheet.cell(row=8, column=1).value = "Bots sin usar:"
-        worksheet.cell(row=8, column=1).font = Font(bold=True)
-        worksheet.cell(row=8, column=2).value = inactive_profiles
-
-        worksheet.cell(row=9, column=1).value = "Total ejecuciones encontradas:"
-        worksheet.cell(row=9, column=1).font = Font(bold=True)
-        worksheet.cell(row=9, column=2).value = total_executions
-
-        worksheet.cell(row=10, column=1).value = "Total criterios configurados:"
-        worksheet.cell(row=10, column=1).font = Font(bold=True)
-        worksheet.cell(row=10, column=2).value = total_criteria
-
-        # Métrica adicional existente
-        if active_profiles > 0:
-            avg_executions = total_executions / active_profiles
-            worksheet.cell(row=11, column=1).value = "Promedio ejecuciones por bot activo:"
-            worksheet.cell(row=11, column=1).font = Font(bold=True)
-            worksheet.cell(row=11, column=2).value = round(avg_executions, 2)
-
-        # SECCIÓN: TIPOS DE BOT CON COLORES ROSA
-        automatic_bots = [p for p in profiles if p.is_bot_automatic()]
-        manual_bots = [p for p in profiles if p.is_bot_manual()]
-
-        worksheet.cell(row=13, column=1).value = "TIPOS DE BOT"
-        worksheet.cell(row=13, column=1).font = Font(bold=True, size=14, color="C71585")  # Rosa oscuro
-
-        worksheet.cell(row=14, column=1).value = "Bots Automáticos:"
-        worksheet.cell(row=14, column=1).font = Font(bold=True)
-        worksheet.cell(row=14, column=2).value = len(automatic_bots)
-        worksheet.cell(row=14, column=2).fill = PatternFill(start_color="FFFFC0CB", end_color="FFFFC0CB", fill_type="solid")
-
-        worksheet.cell(row=15, column=1).value = "Bots Manuales:"
-        worksheet.cell(row=15, column=1).font = Font(bold=True)
-        worksheet.cell(row=15, column=2).value = len(manual_bots)
-        worksheet.cell(row=15, column=2).fill = PatternFill(start_color="FFFFC0CB", end_color="FFFFC0CB", fill_type="solid")
-
-        # Porcentaje de distribución
-        if profiles:
-            auto_percentage = (len(automatic_bots) / len(profiles)) * 100
-            worksheet.cell(row=16, column=1).value = "% Bots Automáticos:"
-            worksheet.cell(row=16, column=1).font = Font(bold=True)
-            worksheet.cell(row=16, column=2).value = f"{round(auto_percentage, 1)}%"
-
-        # MÉTRICAS DE SEGUIMIENTO ÓPTIMO CON RANGOS DE COLORES
-        profiles_with_tracking = [p for p in profiles if p.track_optimal]
-
-        if profiles_with_tracking:
-            worksheet.cell(row=18, column=1).value = "SEGUIMIENTO DE EJECUCIONES ÓPTIMAS"
-            worksheet.cell(row=18, column=1).font = Font(bold=True, size=14, color="006400")
-
-            worksheet.cell(row=19, column=1).value = "Bots con seguimiento óptimo:"
-            worksheet.cell(row=19, column=1).font = Font(bold=True)
-            worksheet.cell(row=19, column=2).value = len(profiles_with_tracking)
-
-            # Contadores por rangos de éxito
-            success_100 = len(
-                [p for p in profiles_with_tracking if p.get_success_percentage() and p.get_success_percentage() >= 100])
-            success_90_50 = len([p for p in profiles_with_tracking if
-                                 p.get_success_percentage() and 90 <= p.get_success_percentage() < 100])
-            success_50_30 = len([p for p in profiles_with_tracking if
-                                 p.get_success_percentage() and 30 <= p.get_success_percentage() < 50])
-            success_low = len(
-                [p for p in profiles_with_tracking if p.get_success_percentage() and p.get_success_percentage() < 30])
-
-            worksheet.cell(row=20, column=1).value = "✅ Éxito óptimo (100%):"
-            worksheet.cell(row=20, column=1).font = Font(bold=True, color="006400")
-            worksheet.cell(row=20, column=2).value = success_100
-            worksheet.cell(row=20, column=2).fill = PatternFill(start_color="FF90EE90", end_color="FF90EE90",
-                                                                fill_type="solid")
-
-            worksheet.cell(row=21, column=1).value = "📊 Éxito alto (90-99%):"
-            worksheet.cell(row=21, column=1).font = Font(bold=True, color="800080")
-            worksheet.cell(row=21, column=2).value = success_90_50
-            worksheet.cell(row=21, column=2).fill = PatternFill(start_color="FFE6E6FA", end_color="FFE6E6FA",
-                                                                fill_type="solid")
-
-            worksheet.cell(row=22, column=1).value = "⚠️ Éxito medio (30-49%):"
-            worksheet.cell(row=22, column=1).font = Font(bold=True, color="B8860B")
-            worksheet.cell(row=22, column=2).value = success_50_30
-            worksheet.cell(row=22, column=2).fill = PatternFill(start_color="FFFFFF99", end_color="FFFFFF99",
-                                                                fill_type="solid")
-
-            worksheet.cell(row=23, column=1).value = "❌ Éxito bajo (<30%):"
-            worksheet.cell(row=23, column=1).font = Font(bold=True, color="CC0000")
-            worksheet.cell(row=23, column=2).value = success_low
-            worksheet.cell(row=23, column=2).fill = PatternFill(start_color="FFFFCCCC", end_color="FFFFCCCC",
-                                                                fill_type="solid")
-
-            # Promedio de porcentaje de éxito
-            success_percentages = []
-            for profile in profiles_with_tracking:
-                percentage = profile.get_success_percentage()
-                if percentage is not None:
-                    success_percentages.append(percentage)
-
-            if success_percentages:
-                avg_success = sum(success_percentages) / len(success_percentages)
-                worksheet.cell(row=24, column=1).value = "Promedio de porcentaje de éxito:"
-                worksheet.cell(row=24, column=1).font = Font(bold=True)
-                worksheet.cell(row=24, column=2).value = f"{round(avg_success, 1)}%"
-
-        # Top 3 bots más productivos (actualizado con tipo de bot)
-        if profiles:
-            start_row = 26 if profiles_with_tracking else 18
-            worksheet.cell(row=start_row, column=1).value = "TOP 3 BOTS MÁS PRODUCTIVOS"
-            worksheet.cell(row=start_row, column=1).font = Font(bold=True, size=12, color="366092")
-
-            # Ordenar perfiles por ejecuciones encontradas
-            sorted_profiles = sorted(profiles, key=lambda p: p.found_emails, reverse=True)[:3]
-
-            for i, profile in enumerate(sorted_profiles, 1):
-                row = start_row + i
-                bot_type_icon = "🤖" if profile.is_bot_automatic() else "👤"
-                profile_text = f"{i}. {profile.name} {bot_type_icon}"
-                executions_text = f"{profile.found_emails} ejecuciones"
-
-                # Agregar información de éxito si está disponible
-                if profile.track_optimal:
-                    success_percentage = profile.get_success_percentage()
-                    if success_percentage is not None:
-                        executions_text += f" ({success_percentage}% éxito)"
-                        if success_percentage >= 100:
-                            executions_text += " ✅"
-                        elif success_percentage >= 90:
-                            executions_text += " 📊"
-                        elif success_percentage >= 30:
-                            executions_text += " ⚠️"
-                        else:
-                            executions_text += " ❌"
-
-                worksheet.cell(row=row, column=1).value = profile_text
-                worksheet.cell(row=row, column=2).value = executions_text
-
-        # Ajustar ancho de columnas
+        # Agregar más métricas del resumen...
         worksheet.column_dimensions['A'].width = 40
         worksheet.column_dimensions['B'].width = 30
 
-        # Agregar bordes a las celdas principales
-        max_row = 30 if profiles_with_tracking else 22
-        for row in range(1, max_row):
-            for col in range(1, 3):
-                cell = worksheet.cell(row=row, column=col)
-                if cell.value:
-                    cell.border = Border(
-                        left=Side(border_style="thin"),
-                        right=Side(border_style="thin"),
-                        top=Side(border_style="thin"),
-                        bottom=Side(border_style="thin")
-                    )
+    def _add_weekly_summary_sheet(self, worksheet, weekly_data, start_date, end_date):
+        """Agrega hoja de resumen semanal con métricas corregidas."""
+        worksheet.cell(row=1, column=1).value = "RESUMEN EJECUTIVO - SEMANAL"
+        worksheet.cell(row=1, column=1).font = Font(bold=True, size=16, color="366092")
+        worksheet.merge_cells('A1:B1')
+
+        current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        worksheet.cell(row=3, column=1).value = "Fecha de generación:"
+        worksheet.cell(row=3, column=1).font = Font(bold=True)
+        worksheet.cell(row=3, column=2).value = current_date
+
+        period_text = f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+        worksheet.cell(row=4, column=1).value = "Período del reporte:"
+        worksheet.cell(row=4, column=1).font = Font(bold=True)
+        worksheet.cell(row=4, column=2).value = period_text
+
+        worksheet.cell(row=5, column=1).value = "Reportes diarios incluidos:"
+        worksheet.cell(row=5, column=1).font = Font(bold=True)
+        worksheet.cell(row=5, column=2).value = weekly_data['reports_count']
+
+        # Agregar métricas de éxito semanal corregidas
+        profiles_with_tracking = [
+            data for data in weekly_data['aggregated_data'].values()
+            if data['has_tracking']
+        ]
+
+        worksheet.cell(row=7, column=1).value = "MÉTRICAS DE ÉXITO SEMANAL (CORREGIDAS)"
+        worksheet.cell(row=7, column=1).font = Font(bold=True, size=14, color="006400")
+
+        worksheet.cell(row=8, column=1).value = "Perfiles con seguimiento:"
+        worksheet.cell(row=8, column=1).font = Font(bold=True)
+        worksheet.cell(row=8, column=2).value = len(profiles_with_tracking)
+
+        worksheet.column_dimensions['A'].width = 40
+        worksheet.column_dimensions['B'].width = 30
 
     def get_reports_directory(self):
-        """
-        Retorna el directorio donde se guardan los reportes.
-
-        Returns:
-            str: Ruta del directorio de reportes
-        """
+        """Retorna el directorio donde se guardan los reportes."""
         return str(self.reports_dir)
-
-    def _get_report_date(self, file_path):
-        """Obtiene la fecha desde el nombre del archivo de reporte."""
-        name = file_path.name
-        match = re.search(r"reporte_perfiles_(\d{8})_", name)
-        if match:
-            try:
-                return datetime.strptime(match.group(1), "%Y%m%d").date()
-            except ValueError:
-                return None
-        return None
-
-    def _collect_reports(self, start_date, end_date):
-        """Recopila reportes existentes dentro de un rango de fechas."""
-        reports = []
-        for report in self.reports_dir.glob("reporte_perfiles_*.xlsx"):
-            report_date = self._get_report_date(report)
-            if report_date and start_date <= report_date <= end_date:
-                reports.append(report)
-        return reports
-
-    def generate_weekly_report(self):
-        """Genera un paquete ZIP con los reportes de la semana actual."""
-        today = datetime.now().date()
-        start_week = today - timedelta(days=today.weekday())
-        reports = self._collect_reports(start_week, today)
-        if not reports:
-            raise Exception("No se encontraron reportes para la semana actual")
-
-        zip_path = self.reports_dir / f"reporte_semanal_{today.strftime('%Y%m%d')}.zip"
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            for report in reports:
-                zf.write(report, arcname=report.name)
-        return str(zip_path)
-
-    def generate_monthly_report(self):
-        """Genera un paquete ZIP con los reportes del mes actual."""
-        today = datetime.now().date()
-        start_month = today.replace(day=1)
-        reports = self._collect_reports(start_month, today)
-        if not reports:
-            raise Exception("No se encontraron reportes para el mes actual")
-
-        zip_path = self.reports_dir / f"reporte_mensual_{today.strftime('%Y%m%d')}.zip"
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            for report in reports:
-                zf.write(report, arcname=report.name)
-        return str(zip_path)

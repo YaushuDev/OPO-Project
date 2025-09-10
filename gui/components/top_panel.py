@@ -51,12 +51,11 @@ class TopPanel:
         # Variables de control para operaciones asíncronas
         self.is_searching = False
         self.is_generating_report = False
+        self.is_generating_weekly_report = False
 
-        # Inicializar el servicio de programación con referencias a generadores de reportes
+        # Inicializar el servicio de programación con referencia a la función de generación de reportes
         self.scheduler_service = SchedulerService(
             report_generator=self._generate_scheduled_report,
-            weekly_report_generator=self._generate_weekly_report,
-            monthly_report_generator=self._generate_monthly_report,
             log_callback=self._add_log
         )
 
@@ -96,22 +95,13 @@ class TopPanel:
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
-        # Botón para reportes periódicos
-        self.periodic_report_btn = ttk.Menubutton(
+        # Nuevo botón para reporte semanal
+        self.generate_weekly_report_btn = ttk.Button(
             self.button_frame,
-            text="Reporte Periódico"
+            text="Generar Reporte Semanal",
+            command=self._generate_weekly_report_async
         )
-        periodic_menu = tk.Menu(self.periodic_report_btn, tearoff=False)
-        periodic_menu.add_command(
-            label="Semanal",
-            command=lambda: self._generate_periodic_report_async("weekly")
-        )
-        periodic_menu.add_command(
-            label="Mensual",
-            command=lambda: self._generate_periodic_report_async("monthly")
-        )
-        self.periodic_report_btn["menu"] = periodic_menu
-        self.periodic_report_btn.grid(row=0, column=1, padx=(0, 5))
+        self.generate_weekly_report_btn.grid(row=0, column=1, padx=(0, 5))
 
         # Botón de programación
         self.schedule_btn = ttk.Button(
@@ -312,7 +302,7 @@ class TopPanel:
 
     def _open_scheduler_modal_safe(self):
         """Abre el modal de programación de manera segura."""
-        if self.is_searching or self.is_generating_report:
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Hay una operación en curso. Espera a que termine antes de configurar la programación."
@@ -393,7 +383,7 @@ class TopPanel:
 
     def _run_global_search_async(self):
         """Ejecuta búsqueda global de manera asíncrona para prevenir bloqueos."""
-        if self.is_searching or self.is_generating_report:
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Ya hay una operación en curso. Espera a que termine."
@@ -537,7 +527,7 @@ class TopPanel:
 
     def _generate_report_async(self):
         """Genera reporte de manera asíncrona para prevenir bloqueos."""
-        if self.is_searching or self.is_generating_report:
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Ya hay una operación en curso. Espera a que termine."
@@ -572,58 +562,36 @@ class TopPanel:
         thread = threading.Thread(target=report_thread, daemon=True)
         thread.start()
 
-    def _generate_periodic_report_async(self, period):
-        """Genera reportes semanal o mensual de forma asíncrona."""
-        if self.is_searching or self.is_generating_report:
+    def _generate_weekly_report_async(self):
+        """Genera reporte semanal de manera asíncrona para prevenir bloqueos."""
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Ya hay una operación en curso. Espera a que termine."
             )
             return
 
-        self.is_generating_report = True
+        # Marcar como en progreso y deshabilitar botones
+        self.is_generating_weekly_report = True
         self._set_buttons_state("disabled")
 
-        def report_thread():
+        # Iniciar operación de progreso
+        self.progress_service.start_operation(
+            "Generación de Reporte Semanal",
+            3,  # Búsqueda + generación + envío
+            can_cancel=False
+        )
+
+        # Ejecutar en hilo separado
+        def weekly_report_thread():
             try:
-                if period == "weekly":
-                    self._generate_weekly_report()
-                else:
-                    self._generate_monthly_report()
+                self._perform_weekly_report_generation_threaded()
             finally:
-                self.parent_frame.after(0, lambda: self._finish_report_operation())
+                # Rehabilitar botones y marcar como terminado
+                self.parent_frame.after(0, lambda: self._finish_weekly_report_operation())
 
-        threading.Thread(target=report_thread, daemon=True).start()
-
-    def _generate_weekly_report(self):
-        """Genera y envía un reporte semanal basado en reportes existentes."""
-        try:
-            report_path = self.report_service.generate_weekly_report()
-            self._add_log(f"📊 Reporte semanal generado: {report_path}")
-            success = self.email_service.send_report(report_path)
-            if success:
-                self._add_log("📧 Reporte semanal enviado correctamente")
-            else:
-                self._add_log("❌ Error al enviar reporte semanal por correo")
-            return report_path
-        except Exception as e:
-            self._add_log(f"💥 Error al generar reporte semanal: {e}")
-            return None
-
-    def _generate_monthly_report(self):
-        """Genera y envía un reporte mensual basado en reportes existentes."""
-        try:
-            report_path = self.report_service.generate_monthly_report()
-            self._add_log(f"📊 Reporte mensual generado: {report_path}")
-            success = self.email_service.send_report(report_path)
-            if success:
-                self._add_log("📧 Reporte mensual enviado correctamente")
-            else:
-                self._add_log("❌ Error al enviar reporte mensual por correo")
-            return report_path
-        except Exception as e:
-            self._add_log(f"💥 Error al generar reporte mensual: {e}")
-            return None
+        thread = threading.Thread(target=weekly_report_thread, daemon=True)
+        thread.start()
 
     def _perform_report_generation_threaded(self, profiles):
         """Ejecuta la generación de reporte en un hilo separado."""
@@ -683,6 +651,47 @@ class TopPanel:
             error_msg = f"Error durante generación de reporte: {e}"
             self.progress_service.error_operation(error_msg)
 
+    def _perform_weekly_report_generation_threaded(self):
+        """Ejecuta la generación de reporte semanal en un hilo separado."""
+        try:
+            self.progress_service.log_progress("=" * 50)
+            self.progress_service.log_progress("📊 GENERACIÓN DE REPORTE SEMANAL")
+            self.progress_service.log_progress("=" * 50)
+
+            # PASO 1: Buscar reportes existentes
+            self.progress_service.update_progress(1, 3, "Buscando reportes diarios de la semana...")
+
+            # PASO 2: Generar reporte semanal
+            self.progress_service.update_progress(2, 3, "Generando reporte semanal...")
+
+            try:
+                report_path = self.report_service.generate_weekly_profiles_report()
+                self.progress_service.log_progress(f"✅ Reporte semanal generado: {report_path}")
+
+                # PASO 3: Enviar por correo
+                self.progress_service.update_progress(3, 3, "Enviando reporte semanal por correo...")
+
+                success = self.email_service.send_report(report_path)
+
+                if success:
+                    success_message = f"Reporte semanal enviado exitosamente: {report_path}"
+                    self.progress_service.complete_operation(success_message)
+
+                    # Mostrar resultado
+                    self.parent_frame.after(0, lambda: self._show_weekly_report_results(report_path))
+                else:
+                    error_msg = "Reporte semanal generado pero no se pudo enviar por correo"
+                    self.progress_service.error_operation(error_msg)
+
+            except Exception as e:
+                error_msg = f"Error generando reporte semanal: {str(e)}"
+                self.progress_service.error_operation(error_msg)
+                self.parent_frame.after(0, lambda: messagebox.showerror("Error", error_msg))
+
+        except Exception as e:
+            error_msg = f"Error durante generación de reporte semanal: {e}"
+            self.progress_service.error_operation(error_msg)
+
     def _run_global_search_silent_threaded(self, profiles):
         """Ejecuta búsqueda global silenciosa en hilo separado."""
         total_found = 0
@@ -723,20 +732,30 @@ class TopPanel:
             f"• Búsqueda mejorada: Con verificación de timestamp"
         )
 
+    def _show_weekly_report_results(self, report_path):
+        """Muestra los resultados de la generación de reporte semanal."""
+        messagebox.showinfo(
+            "✅ Reporte Semanal Enviado",
+            f"Reporte semanal generado y enviado correctamente.\n\n"
+            f"El reporte semanal contiene los datos acumulados\n"
+            f"de todos los reportes diarios de la semana actual.\n\n"
+            f"Ruta del archivo: {report_path}"
+        )
+
     def _finish_report_operation(self):
         """Finaliza la operación de reporte y restaura la UI."""
         self.is_generating_report = False
         self._set_buttons_state("normal")
 
+    def _finish_weekly_report_operation(self):
+        """Finaliza la operación de reporte semanal y restaura la UI."""
+        self.is_generating_weekly_report = False
+        self._set_buttons_state("normal")
+
     def _set_buttons_state(self, state):
         """Cambia el estado de todos los botones principales."""
-        buttons = [
-            self.generate_report_btn,
-            self.periodic_report_btn,
-            self.schedule_btn,
-            self.search_all_btn,
-            self.new_btn,
-        ]
+        buttons = [self.generate_report_btn, self.generate_weekly_report_btn, self.schedule_btn, self.search_all_btn,
+                   self.new_btn]
         for btn in buttons:
             btn.config(state=state)
 
@@ -824,5 +843,8 @@ class TopPanel:
             "automatic_bots": automatic_bots,
             "manual_bots": manual_bots,
             "enhanced_search": True,
-            "optimized_ui": True  # Nueva métrica indicando UI optimizada
+            "weekly_reports": True,
+            "enhanced_search": True,
+            "weekly_reports": True,
+            "optimized_ui": True
         }
