@@ -716,6 +716,8 @@ class TopPanel:
             error_msg = f"Error durante generación de reporte: {e}"
             self.progress_service.error_operation(error_msg)
 
+    # Modificación parcial para top_panel.py
+
     def _perform_weekly_report_generation_threaded(self):
         """Ejecuta la generación de reporte semanal en un hilo separado."""
         try:
@@ -736,7 +738,8 @@ class TopPanel:
                 # PASO 3: Enviar por correo
                 self.progress_service.update_progress(3, 3, "Enviando reporte semanal por correo...")
 
-                success = self.email_service.send_report(report_path)
+                # Aquí está el cambio: especificar report_type="weekly"
+                success = self.email_service.send_report(report_path, report_type="weekly")
 
                 if success:
                     success_message = f"Reporte semanal enviado exitosamente: {report_path}"
@@ -904,8 +907,8 @@ class TopPanel:
                 report_path = self.report_service.generate_weekly_profiles_report()
                 self._add_log(f"✅ Reporte semanal programado generado: {report_path}")
 
-                # Enviar por correo
-                success = self.email_service.send_report(report_path)
+                # Enviar por correo - Aquí está el cambio
+                success = self.email_service.send_report(report_path, report_type="weekly")
 
                 if success:
                     self._add_log(f"✉️ Reporte semanal programado enviado: {report_path}")

@@ -1,7 +1,8 @@
 # gui/components/email_recipients_modal.py
 """
 Modal de configuración de destinatarios de correo.
-Permite configurar destinatario principal y CC para envío de reportes.
+Permite configurar destinatario principal, CC y plantillas
+de asunto personalizadas para reportes diarios y semanales.
 """
 
 import tkinter as tk
@@ -12,7 +13,7 @@ from pathlib import Path
 
 
 class EmailRecipientsModal:
-    """Modal para configurar destinatarios de correo."""
+    """Modal para configurar destinatarios de correo y plantillas de asunto."""
 
     def __init__(self, parent, bottom_panel=None):
         """
@@ -32,7 +33,7 @@ class EmailRecipientsModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Configuración de Envío de Correos")
-        self.modal.geometry("480x380")
+        self.modal.geometry("480x460")  # Aumentamos altura para nuevos campos
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
@@ -40,7 +41,8 @@ class EmailRecipientsModal:
         # Variables
         self.recipient_email = tk.StringVar()
         self.cc_emails = tk.StringVar()
-        self.subject_template = tk.StringVar(value="Reporte de Búsqueda de Correos - {date}")
+        self.subject_template_daily = tk.StringVar(value="Reporte Diario de Búsqueda de Correos - {date}")
+        self.subject_template_weekly = tk.StringVar(value="Reporte Semanal de Búsqueda de Correos - {date}")
 
         # Centrar ventana
         self._center_window()
@@ -95,20 +97,48 @@ class EmailRecipientsModal:
         )
         cc_entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
-        # Plantilla de asunto
+        # Separador
+        separator = ttk.Separator(main_frame, orient="horizontal")
+        separator.grid(row=5, column=0, columnspan=2, sticky="ew", pady=10)
+
+        # Título sección plantillas
+        templates_title = ttk.Label(
+            main_frame,
+            text="Plantillas de Asunto",
+            font=("Arial", 11, "bold"),
+            foreground="navy"
+        )
+        templates_title.grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        # Plantilla de asunto para reportes diarios
         ttk.Label(
             main_frame,
-            text="Plantilla del Asunto:",
+            text="Plantilla para Reportes Diarios:",
             font=("Arial", 10, "bold")
-        ).grid(row=5, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=7, column=0, sticky="w", pady=(0, 5))
 
-        subject_entry = ttk.Entry(
+        daily_subject_entry = ttk.Entry(
             main_frame,
-            textvariable=self.subject_template,
+            textvariable=self.subject_template_daily,
             width=50,
             font=("Arial", 10)
         )
-        subject_entry.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        daily_subject_entry.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+
+        # Plantilla de asunto para reportes semanales
+        ttk.Label(
+            main_frame,
+            text="Plantilla para Reportes Semanales:",
+            font=("Arial", 10, "bold")
+        ).grid(row=9, column=0, sticky="w", pady=(0, 5))
+
+        weekly_subject_entry = ttk.Entry(
+            main_frame,
+            textvariable=self.subject_template_weekly,
+            width=50,
+            font=("Arial", 10)
+        )
+        weekly_subject_entry.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         # Nota explicativa
         note_label = ttk.Label(
@@ -117,11 +147,11 @@ class EmailRecipientsModal:
             font=("Arial", 9),
             foreground="gray"
         )
-        note_label.grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 20))
+        note_label.grid(row=11, column=0, columnspan=2, sticky="w", pady=(0, 20))
 
         # Botones
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=8, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=12, column=0, columnspan=2, sticky="ew")
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
@@ -160,8 +190,13 @@ class EmailRecipientsModal:
 
                     self.recipient_email.set(config.get("recipient", ""))
                     self.cc_emails.set(config.get("cc", ""))
-                    self.subject_template.set(
-                        config.get("subject_template", "Reporte de Búsqueda de Correos - {date}")
+
+                    # Cargar plantillas de asunto
+                    self.subject_template_daily.set(
+                        config.get("subject_template_daily", "Reporte Diario de Búsqueda de Correos - {date}")
+                    )
+                    self.subject_template_weekly.set(
+                        config.get("subject_template_weekly", "Reporte Semanal de Búsqueda de Correos - {date}")
                     )
 
                     if self.bottom_panel:
@@ -175,7 +210,8 @@ class EmailRecipientsModal:
         """Guarda la configuración de destinatarios."""
         recipient = self.recipient_email.get().strip()
         cc = self.cc_emails.get().strip()
-        subject = self.subject_template.get().strip()
+        subject_daily = self.subject_template_daily.get().strip()
+        subject_weekly = self.subject_template_weekly.get().strip()
 
         if not recipient:
             messagebox.showerror("Error", "El destinatario principal es obligatorio")
@@ -194,10 +230,18 @@ class EmailRecipientsModal:
                     messagebox.showerror("Error", f"El formato del email CC '{email}' no es válido")
                     return
 
+        # Validar que las plantillas de asunto no estén vacías
+        if not subject_daily:
+            subject_daily = "Reporte Diario de Búsqueda de Correos - {date}"
+
+        if not subject_weekly:
+            subject_weekly = "Reporte Semanal de Búsqueda de Correos - {date}"
+
         config = {
             "recipient": recipient,
             "cc": cc,
-            "subject_template": subject if subject else "Reporte de Búsqueda de Correos - {date}"
+            "subject_template_daily": subject_daily,
+            "subject_template_weekly": subject_weekly
         }
 
         try:

@@ -1,7 +1,8 @@
 # services/email_service.py
 """
 Servicio para envío de correos electrónicos con reportes adjuntos.
-Maneja el envío de reportes Excel por correo usando configuración SMTP.
+Maneja el envío de reportes Excel por correo usando configuración SMTP,
+permitiendo plantillas de asunto diferentes para reportes diarios y semanales.
 """
 
 import os
@@ -17,19 +18,20 @@ from email import encoders
 
 
 class EmailService:
-    """Servicio para envío de correos electrónicos."""
+    """Servicio para envío de correos electrónicos con soporte para tipos de reportes."""
 
     def __init__(self):
         """Inicializa el servicio de email."""
         self.smtp_config_file = Path("config") / "smtp_config.json"
         self.recipients_config_file = Path("config") / "email_recipients.json"
 
-    def send_report(self, report_path):
+    def send_report(self, report_path, report_type="daily"):
         """
         Envía un reporte por correo electrónico.
 
         Args:
             report_path (str): Ruta del archivo de reporte a enviar
+            report_type (str): Tipo de reporte ('daily' o 'weekly')
 
         Returns:
             bool: True si se envió exitosamente, False en caso contrario
@@ -46,7 +48,7 @@ class EmailService:
                 raise Exception("No se encontró configuración de destinatarios. Configure destinatarios primero.")
 
             # Crear mensaje
-            msg = self._create_message(smtp_config, recipients_config, report_path)
+            msg = self._create_message(smtp_config, recipients_config, report_path, report_type)
 
             # Enviar correo
             self._send_email(smtp_config, msg)
@@ -87,7 +89,7 @@ class EmailService:
             pass
         return None
 
-    def _create_message(self, smtp_config, recipients_config, report_path):
+    def _create_message(self, smtp_config, recipients_config, report_path, report_type="daily"):
         """
         Crea el mensaje de correo con el reporte adjunto.
 
@@ -95,6 +97,7 @@ class EmailService:
             smtp_config (dict): Configuración SMTP
             recipients_config (dict): Configuración de destinatarios
             report_path (str): Ruta del archivo de reporte
+            report_type (str): Tipo de reporte ('daily' o 'weekly')
 
         Returns:
             MIMEMultipart: Mensaje de correo preparado
@@ -111,13 +114,22 @@ class EmailService:
         if cc_emails:
             msg['Cc'] = cc_emails
 
+        # Seleccionar la plantilla de asunto adecuada según el tipo de reporte
+        if report_type == "weekly":
+            subject_template = recipients_config.get('subject_template_weekly',
+                                                   "Reporte Semanal de Búsqueda de Correos - {date}")
+            report_type_text = "semanal"
+        else:  # default: daily
+            subject_template = recipients_config.get('subject_template_daily',
+                                                   "Reporte Diario de Búsqueda de Correos - {date}")
+            report_type_text = "diario"
+
         # Configurar asunto
-        subject_template = recipients_config.get('subject_template', 'Reporte de Búsqueda de Correos - {date}')
         current_date = datetime.now().strftime("%d/%m/%Y %H:%M")
         msg['Subject'] = subject_template.format(date=current_date)
 
         # Crear cuerpo del mensaje
-        body = self._create_email_body(report_path)
+        body = self._create_email_body(report_path, report_type_text)
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
         # Adjuntar archivo de reporte
@@ -126,12 +138,13 @@ class EmailService:
 
         return msg
 
-    def _create_email_body(self, report_path):
+    def _create_email_body(self, report_path, report_type_text):
         """
         Crea el cuerpo del mensaje de correo.
 
         Args:
             report_path (str): Ruta del archivo de reporte
+            report_type_text (str): Texto descriptivo del tipo de reporte
 
         Returns:
             str: Cuerpo del mensaje
@@ -141,18 +154,19 @@ class EmailService:
 
         body = f"""Estimado/a,
 
-Se adjunta el reporte de búsqueda de correos generado automáticamente.
+Se adjunta el reporte {report_type_text} de búsqueda de correos generado automáticamente.
 
 📋 INFORMACIÓN DEL REPORTE:
-• Archivo: {filename}
-• Generado el: {current_datetime}
-• Sistema: Bot de Búsqueda de Correos
+- Archivo: {filename}
+- Generado el: {current_datetime}
+- Tipo: Reporte {report_type_text}
+- Sistema: Bot de Búsqueda de Correos
 
 📊 CONTENIDO:
-• Listado completo de perfiles de búsqueda
-• Estadísticas de correos encontrados
-• Fechas de última búsqueda por perfil
-• Resumen ejecutivo con métricas clave
+- Listado completo de perfiles de búsqueda
+- Estadísticas de correos encontrados
+- Fechas de última búsqueda por perfil
+- Resumen ejecutivo con métricas clave
 
 Este reporte ha sido generado automáticamente por el sistema de búsqueda de correos.
 
