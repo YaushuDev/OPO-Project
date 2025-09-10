@@ -1,7 +1,8 @@
 # gui/components/scheduler_modal.py
 """
 Modal para configurar programación de envío automático de reportes.
-Permite seleccionar días de la semana y hora para envío automático.
+Permite seleccionar días de la semana y hora para envío automático,
+así como configurar el envío semanal en un día específico.
 """
 
 import tkinter as tk
@@ -13,7 +14,7 @@ from datetime import datetime
 
 
 class SchedulerModal:
-    """Modal para configurar programación de reportes."""
+    """Modal para configurar programación de reportes diarios y semanales."""
 
     def __init__(self, parent, bottom_panel=None):
         """
@@ -33,12 +34,12 @@ class SchedulerModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Programación de Reportes")
-        self.modal.geometry("500x600")
+        self.modal.geometry("550x860")  # Aumentado para acomodar nueva sección
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
 
-        # Variables para días de la semana
+        # Variables para días de la semana (reportes diarios)
         self.days = {
             "monday": tk.BooleanVar(value=False),
             "tuesday": tk.BooleanVar(value=False),
@@ -49,12 +50,22 @@ class SchedulerModal:
             "sunday": tk.BooleanVar(value=False)
         }
 
-        # Variables para hora
+        # Variables para hora (reportes diarios)
         self.hour = tk.StringVar(value="08")
         self.minute = tk.StringVar(value="00")
 
-        # Variable para habilitar/deshabilitar programación
+        # Variable para habilitar/deshabilitar programación diaria
         self.enabled = tk.BooleanVar(value=False)
+
+        # Variable para habilitar/deshabilitar programación semanal
+        self.weekly_enabled = tk.BooleanVar(value=False)
+
+        # Variable para día de la semana del reporte semanal
+        self.weekly_day = tk.StringVar(value="friday")
+
+        # Variables para hora del reporte semanal
+        self.weekly_hour = tk.StringVar(value="16")
+        self.weekly_minute = tk.StringVar(value="00")
 
         # Centrar ventana
         self._center_window()
@@ -79,25 +90,30 @@ class SchedulerModal:
         )
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 25))
 
-        # Switch para activar/desactivar programación
-        enable_frame = ttk.Frame(main_frame)
-        enable_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 20))
-
-        enable_switch = ttk.Checkbutton(
-            enable_frame,
-            text="Activar envío automático de reportes",
-            variable=self.enabled,
-            command=self._toggle_scheduler
+        # ==== SECCIÓN DE REPORTES DIARIOS ====
+        daily_frame = ttk.LabelFrame(
+            main_frame,
+            text="Configuración de Reportes Diarios",
+            padding="15 15 15 15"
         )
-        enable_switch.pack(side=tk.LEFT)
+        daily_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+
+        # Switch para activar/desactivar programación diaria
+        enable_switch = ttk.Checkbutton(
+            daily_frame,
+            text="Activar envío automático de reportes diarios",
+            variable=self.enabled,
+            command=self._toggle_daily_scheduler
+        )
+        enable_switch.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Frame para días de la semana
         days_frame = ttk.LabelFrame(
-            main_frame,
+            daily_frame,
             text="Días de envío",
-            padding="15 15 15 15"
+            padding="10 10 10 10"
         )
-        days_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        days_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
         # Checkboxes para días
         day_names = {
@@ -126,21 +142,21 @@ class SchedulerModal:
         days_frame.columnconfigure(0, weight=1)
         days_frame.columnconfigure(1, weight=1)
 
-        # Frame para hora de envío
-        time_frame = ttk.LabelFrame(
-            main_frame,
+        # Frame para hora de envío diario
+        daily_time_frame = ttk.LabelFrame(
+            daily_frame,
             text="Hora de envío",
-            padding="15 15 15 15"
+            padding="10 10 10 10"
         )
-        time_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        daily_time_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
-        # Selector de hora
-        time_frame.columnconfigure(0, weight=1)
-        time_frame.columnconfigure(1, weight=1)
+        # Selector de hora para reportes diarios
+        daily_time_frame.columnconfigure(0, weight=1)
+        daily_time_frame.columnconfigure(1, weight=1)
 
         hour_values = [f"{i:02d}" for i in range(24)]
         hour_combo = ttk.Combobox(
-            time_frame,
+            daily_time_frame,
             textvariable=self.hour,
             values=hour_values,
             width=5,
@@ -148,11 +164,11 @@ class SchedulerModal:
         )
         hour_combo.grid(row=0, column=0, sticky="e", padx=(0, 5))
 
-        ttk.Label(time_frame, text=":").grid(row=0, column=1, sticky="nsew")
+        ttk.Label(daily_time_frame, text=":").grid(row=0, column=1, sticky="nsew")
 
         minute_values = [f"{i:02d}" for i in range(0, 60, 5)]
         minute_combo = ttk.Combobox(
-            time_frame,
+            daily_time_frame,
             textvariable=self.minute,
             values=minute_values,
             width=5,
@@ -160,15 +176,118 @@ class SchedulerModal:
         )
         minute_combo.grid(row=0, column=2, sticky="w", padx=(5, 0))
 
-        # Nota explicativa
-        note_label = ttk.Label(
+        # ==== SEPARADOR ENTRE SECCIONES ====
+        separator = ttk.Separator(main_frame, orient="horizontal")
+        separator.grid(row=2, column=0, columnspan=2, sticky="ew", pady=15)
+
+        # ==== SECCIÓN DE REPORTES SEMANALES ====
+        weekly_frame = ttk.LabelFrame(
             main_frame,
-            text="Los reportes se generarán y enviarán automáticamente\nen los días y hora seleccionados.",
+            text="Configuración de Reportes Semanales",
+            padding="15 15 15 15"
+        )
+        weekly_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+
+        # Switch para activar/desactivar programación semanal
+        weekly_enable_switch = ttk.Checkbutton(
+            weekly_frame,
+            text="Activar envío automático de reportes semanales",
+            variable=self.weekly_enabled,
+            command=self._toggle_weekly_scheduler
+        )
+        weekly_enable_switch.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 15))
+
+        # Frame para día de la semana del reporte semanal
+        weekly_day_frame = ttk.Frame(weekly_frame)
+        weekly_day_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+
+        ttk.Label(
+            weekly_day_frame,
+            text="Día de envío semanal:",
+            font=("Arial", 10)
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
+
+        # Combobox para seleccionar el día de la semana
+        weekly_day_combo = ttk.Combobox(
+            weekly_day_frame,
+            textvariable=self.weekly_day,
+            values=["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+            state="readonly",
+            width=15
+        )
+        weekly_day_combo.grid(row=0, column=1, sticky="w")
+
+        # Establecer textos legibles para el combobox
+        weekly_day_combo.configure(values=list(day_names.values()))
+
+        # Mapeo inverso para convertir nombres legibles a claves
+        self.day_keys = {v: k for k, v in day_names.items()}
+
+        # Escuchar cambios en el combobox para actualizar la variable
+        def on_weekly_day_change(event):
+            selected_day_name = weekly_day_combo.get()
+            if selected_day_name in self.day_keys:
+                self.weekly_day.set(self.day_keys[selected_day_name])
+
+        weekly_day_combo.bind("<<ComboboxSelected>>", on_weekly_day_change)
+
+        # Establecer valor inicial visible
+        for day_name, day_key in self.day_keys.items():
+            if day_key == self.weekly_day.get():
+                weekly_day_combo.set(day_name)
+                break
+
+        # Frame para hora de envío semanal
+        weekly_time_frame = ttk.LabelFrame(
+            weekly_frame,
+            text="Hora de envío semanal",
+            padding="10 10 10 10"
+        )
+        weekly_time_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+
+        # Selector de hora para reportes semanales
+        weekly_time_frame.columnconfigure(0, weight=1)
+        weekly_time_frame.columnconfigure(1, weight=1)
+
+        weekly_hour_combo = ttk.Combobox(
+            weekly_time_frame,
+            textvariable=self.weekly_hour,
+            values=hour_values,
+            width=5,
+            state="readonly"
+        )
+        weekly_hour_combo.grid(row=0, column=0, sticky="e", padx=(0, 5))
+
+        ttk.Label(weekly_time_frame, text=":").grid(row=0, column=1, sticky="nsew")
+
+        weekly_minute_combo = ttk.Combobox(
+            weekly_time_frame,
+            textvariable=self.weekly_minute,
+            values=minute_values,
+            width=5,
+            state="readonly"
+        )
+        weekly_minute_combo.grid(row=0, column=2, sticky="w", padx=(5, 0))
+
+        # Explicación del reporte semanal
+        weekly_note = ttk.Label(
+            weekly_frame,
+            text="El reporte semanal contiene datos acumulados de todos\nlos reportes diarios de la semana.",
             font=("Arial", 9),
             foreground="gray",
             justify="center"
         )
-        note_label.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        weekly_note.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(5, 0))
+
+        # Nota explicativa general
+        note_label = ttk.Label(
+            main_frame,
+            text="Los reportes se generarán y enviarán automáticamente\nen los días y horas seleccionados.",
+            font=("Arial", 9),
+            foreground="gray",
+            justify="center"
+        )
+        note_label.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 20))
 
         # Botones
         button_frame = ttk.Frame(main_frame)
@@ -191,7 +310,8 @@ class SchedulerModal:
         close_btn.grid(row=0, column=1, padx=(5, 0), sticky="w")
 
         # Configurar estado inicial
-        self._toggle_scheduler()
+        self._toggle_daily_scheduler()
+        self._toggle_weekly_scheduler()
 
         # Configurar columnas expandibles
         main_frame.columnconfigure(0, weight=1)
@@ -205,18 +325,35 @@ class SchedulerModal:
         y = (self.modal.winfo_screenheight() // 2) - (height // 2)
         self.modal.geometry(f"{width}x{height}+{x}+{y}")
 
-    def _toggle_scheduler(self):
-        """Habilita/deshabilita los controles según el estado del switch."""
+    def _toggle_daily_scheduler(self):
+        """Habilita/deshabilita los controles de programación diaria según el estado del switch."""
         state = "normal" if self.enabled.get() else "disabled"
 
-        # Aplicar estado a todos los widgets de días
-        for widget in self.modal.winfo_children():
-            if isinstance(widget, ttk.Frame):
-                for child in widget.winfo_children():
-                    if isinstance(child, ttk.LabelFrame):
-                        for grandchild in child.winfo_children():
-                            if isinstance(grandchild, ttk.Checkbutton) or isinstance(grandchild, ttk.Combobox):
-                                grandchild.configure(state=state)
+        # Aplicar estado a todos los widgets de días diarios
+        for child in self.modal.winfo_children():
+            if isinstance(child, ttk.Frame):
+                for grandchild in child.winfo_children():
+                    if isinstance(grandchild, ttk.LabelFrame) and "Reportes Diarios" in grandchild["text"]:
+                        for ggchild in grandchild.winfo_children():
+                            if isinstance(ggchild, ttk.LabelFrame):
+                                for gggchild in ggchild.winfo_children():
+                                    if isinstance(gggchild, ttk.Checkbutton) or isinstance(gggchild, ttk.Combobox):
+                                        gggchild.configure(state=state)
+
+    def _toggle_weekly_scheduler(self):
+        """Habilita/deshabilita los controles de programación semanal según el estado del switch."""
+        state = "normal" if self.weekly_enabled.get() else "disabled"
+
+        # Aplicar estado a todos los widgets de programación semanal
+        for child in self.modal.winfo_children():
+            if isinstance(child, ttk.Frame):
+                for grandchild in child.winfo_children():
+                    if isinstance(grandchild, ttk.LabelFrame) and "Reportes Semanales" in grandchild["text"]:
+                        for ggchild in grandchild.winfo_children():
+                            if isinstance(ggchild, (ttk.LabelFrame, ttk.Frame)):
+                                for gggchild in ggchild.winfo_children():
+                                    if isinstance(gggchild, (ttk.Checkbutton, ttk.Combobox)):
+                                        gggchild.configure(state=state)
 
     def _load_config(self):
         """Carga configuración guardada."""
@@ -225,7 +362,7 @@ class SchedulerModal:
                 with open(self.config_file, "r", encoding="utf-8") as file:
                     config = json.load(file)
 
-                    # Cargar estado
+                    # Cargar estado de reportes diarios
                     self.enabled.set(config.get("enabled", False))
 
                     # Cargar días
@@ -238,6 +375,16 @@ class SchedulerModal:
                     self.hour.set(time_config[0])
                     self.minute.set(time_config[1])
 
+                    # Cargar configuración de reportes semanales
+                    weekly_config = config.get("weekly", {})
+                    self.weekly_enabled.set(weekly_config.get("enabled", False))
+                    self.weekly_day.set(weekly_config.get("day", "friday"))
+
+                    # Cargar hora semanal
+                    weekly_time_config = weekly_config.get("time", "16:00").split(":")
+                    self.weekly_hour.set(weekly_time_config[0])
+                    self.weekly_minute.set(weekly_time_config[1])
+
                     if self.bottom_panel:
                         self.bottom_panel.add_log_entry("Configuración de programación cargada")
 
@@ -247,21 +394,30 @@ class SchedulerModal:
 
     def _save_config(self):
         """Guarda la configuración de programación."""
-        # Si está habilitado, verificar que haya al menos un día seleccionado
+        # Validar configuración diaria
         if self.enabled.get():
             any_day_selected = any(self.days[day].get() for day in self.days)
             if not any_day_selected:
-                messagebox.showerror("Error", "Debe seleccionar al menos un día de la semana")
+                messagebox.showerror("Error", "Debe seleccionar al menos un día de la semana para los reportes diarios")
                 return
 
         # Crear configuración
         days_config = {day: self.days[day].get() for day in self.days}
         time_config = f"{self.hour.get()}:{self.minute.get()}"
 
+        # Configuración de reportes semanales
+        weekly_time_config = f"{self.weekly_hour.get()}:{self.weekly_minute.get()}"
+        weekly_config = {
+            "enabled": self.weekly_enabled.get(),
+            "day": self.weekly_day.get(),
+            "time": weekly_time_config
+        }
+
         config = {
             "enabled": self.enabled.get(),
             "days": days_config,
             "time": time_config,
+            "weekly": weekly_config,
             "last_update": datetime.now().isoformat()
         }
 
@@ -270,10 +426,19 @@ class SchedulerModal:
                 json.dump(config, file, indent=4, ensure_ascii=False)
 
             if self.bottom_panel:
+                log_message = []
+
                 if self.enabled.get():
-                    self.bottom_panel.add_log_entry("✅ Programación de reportes activada y guardada")
+                    log_message.append("✅ Programación de reportes diarios activada")
                 else:
-                    self.bottom_panel.add_log_entry("✅ Programación de reportes desactivada")
+                    log_message.append("✅ Programación de reportes diarios desactivada")
+
+                if self.weekly_enabled.get():
+                    log_message.append("✅ Programación de reportes semanales activada")
+                else:
+                    log_message.append("✅ Programación de reportes semanales desactivada")
+
+                self.bottom_panel.add_log_entry(" y ".join(log_message))
 
             messagebox.showinfo("Éxito", "Configuración de programación guardada correctamente")
 

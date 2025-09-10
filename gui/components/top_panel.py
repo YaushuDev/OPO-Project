@@ -53,9 +53,10 @@ class TopPanel:
         self.is_generating_report = False
         self.is_generating_weekly_report = False
 
-        # Inicializar el servicio de programación con referencia a la función de generación de reportes
+        # Inicializar el servicio de programación con referencia a ambas funciones generadoras
         self.scheduler_service = SchedulerService(
             report_generator=self._generate_scheduled_report,
+            weekly_report_generator=self._generate_scheduled_weekly_report,
             log_callback=self._add_log
         )
 
@@ -95,7 +96,7 @@ class TopPanel:
         )
         self.generate_report_btn.grid(row=0, column=0, padx=(0, 5))
 
-        # Nuevo botón para reporte semanal
+        # Botón para reporte semanal
         self.generate_weekly_report_btn = ttk.Button(
             self.button_frame,
             text="Generar Reporte Semanal",
@@ -311,7 +312,8 @@ class TopPanel:
 
         try:
             if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry("Abriendo configuración de programación de reportes")
+                self.bottom_right_panel.add_log_entry(
+                    "Abriendo configuración de programación de reportes diarios y semanales")
 
             # Deshabilitar botón temporalmente
             self.schedule_btn.config(state="disabled")
@@ -759,8 +761,17 @@ class TopPanel:
         for btn in buttons:
             btn.config(state=state)
 
-    def _generate_scheduled_report(self):
-        """Genera y envía reporte programado sin interacción del usuario."""
+    def _generate_scheduled_report(self, is_weekly=False):
+        """
+        Genera y envía reporte programado sin interacción del usuario.
+
+        Args:
+            is_weekly (bool): Indica si se trata de un reporte semanal
+        """
+        # Si es reporte semanal, redirigir al método especializado
+        if is_weekly:
+            return self._generate_scheduled_weekly_report()
+
         profiles = self.profile_manager.get_all_profiles()
 
         if not profiles:
@@ -772,7 +783,7 @@ class TopPanel:
         manual_bots = len([p for p in profiles if p.is_bot_manual()])
 
         self._add_log("=" * 40)
-        self._add_log("📅 REPORTE PROGRAMADO INICIADO")
+        self._add_log("📅 REPORTE DIARIO PROGRAMADO INICIADO")
 
         try:
             # Actualizar datos antes de generar reporte programado
@@ -812,6 +823,40 @@ class TopPanel:
 
         except Exception as e:
             error_msg = f"💥 Error al generar reporte programado: {e}"
+            self._add_log(error_msg)
+            return False
+
+    def _generate_scheduled_weekly_report(self):
+        """Genera y envía reporte semanal programado sin interacción del usuario."""
+        self._add_log("=" * 40)
+        self._add_log("📅 REPORTE SEMANAL PROGRAMADO INICIADO")
+
+        try:
+            # Generar reporte semanal
+            self._add_log("📊 Generando reporte semanal programado...")
+
+            try:
+                report_path = self.report_service.generate_weekly_profiles_report()
+                self._add_log(f"✅ Reporte semanal programado generado: {report_path}")
+
+                # Enviar por correo
+                success = self.email_service.send_report(report_path)
+
+                if success:
+                    self._add_log(f"✉️ Reporte semanal programado enviado: {report_path}")
+                    self._add_log("=" * 40)
+                    return True
+                else:
+                    self._add_log("❌ Error al enviar reporte semanal programado por correo")
+                    return False
+
+            except Exception as e:
+                error_msg = f"Error generando reporte semanal programado: {str(e)}"
+                self._add_log(error_msg)
+                return False
+
+        except Exception as e:
+            error_msg = f"💥 Error durante generación de reporte semanal programado: {e}"
             self._add_log(error_msg)
             return False
 
