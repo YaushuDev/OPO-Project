@@ -2,7 +2,7 @@
 """
 Modal de configuración de destinatarios de correo.
 Permite configurar destinatario principal, CC y plantillas
-de asunto personalizadas para reportes diarios y semanales.
+de asunto personalizadas para reportes diarios, semanales y mensuales.
 """
 
 import tkinter as tk
@@ -33,7 +33,7 @@ class EmailRecipientsModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Configuración de Envío de Correos")
-        self.modal.geometry("480x460")  # Aumentamos altura para nuevos campos
+        self.modal.geometry("480x520")  # Aumentamos altura para incluir plantilla mensual
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
@@ -43,6 +43,7 @@ class EmailRecipientsModal:
         self.cc_emails = tk.StringVar()
         self.subject_template_daily = tk.StringVar(value="Reporte Diario de Búsqueda de Correos - {date}")
         self.subject_template_weekly = tk.StringVar(value="Reporte Semanal de Búsqueda de Correos - {date}")
+        self.subject_template_monthly = tk.StringVar(value="Reporte Mensual de Búsqueda de Correos - {date}")
 
         # Centrar ventana
         self._center_window()
@@ -138,7 +139,22 @@ class EmailRecipientsModal:
             width=50,
             font=("Arial", 10)
         )
-        weekly_subject_entry.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        weekly_subject_entry.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+
+        # Plantilla de asunto para reportes mensuales
+        ttk.Label(
+            main_frame,
+            text="Plantilla para Reportes Mensuales:",
+            font=("Arial", 10, "bold")
+        ).grid(row=11, column=0, sticky="w", pady=(0, 5))
+
+        monthly_subject_entry = ttk.Entry(
+            main_frame,
+            textvariable=self.subject_template_monthly,
+            width=50,
+            font=("Arial", 10)
+        )
+        monthly_subject_entry.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         # Nota explicativa
         note_label = ttk.Label(
@@ -147,11 +163,11 @@ class EmailRecipientsModal:
             font=("Arial", 9),
             foreground="gray"
         )
-        note_label.grid(row=11, column=0, columnspan=2, sticky="w", pady=(0, 20))
+        note_label.grid(row=13, column=0, columnspan=2, sticky="w", pady=(0, 20))
 
         # Botones
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=12, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=14, column=0, columnspan=2, sticky="ew")
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
@@ -198,6 +214,9 @@ class EmailRecipientsModal:
                     self.subject_template_weekly.set(
                         config.get("subject_template_weekly", "Reporte Semanal de Búsqueda de Correos - {date}")
                     )
+                    self.subject_template_monthly.set(
+                        config.get("subject_template_monthly", "Reporte Mensual de Búsqueda de Correos - {date}")
+                    )
 
                     if self.bottom_panel:
                         self.bottom_panel.add_log_entry("Configuración de destinatarios cargada")
@@ -212,6 +231,7 @@ class EmailRecipientsModal:
         cc = self.cc_emails.get().strip()
         subject_daily = self.subject_template_daily.get().strip()
         subject_weekly = self.subject_template_weekly.get().strip()
+        subject_monthly = self.subject_template_monthly.get().strip()
 
         if not recipient:
             messagebox.showerror("Error", "El destinatario principal es obligatorio")
@@ -237,11 +257,15 @@ class EmailRecipientsModal:
         if not subject_weekly:
             subject_weekly = "Reporte Semanal de Búsqueda de Correos - {date}"
 
+        if not subject_monthly:
+            subject_monthly = "Reporte Mensual de Búsqueda de Correos - {date}"
+
         config = {
             "recipient": recipient,
             "cc": cc,
             "subject_template_daily": subject_daily,
-            "subject_template_weekly": subject_weekly
+            "subject_template_weekly": subject_weekly,
+            "subject_template_monthly": subject_monthly
         }
 
         try:

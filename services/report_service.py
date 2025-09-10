@@ -2,14 +2,15 @@
 """
 Servicio para generar reportes Excel optimizados de perfiles de búsqueda.
 Crea archivos Excel con información esencial, seguimiento de ejecuciones óptimas
-con formato condicional por rangos y generación de reportes semanales mejorados
-que calculan correctamente los porcentajes de éxito basados en objetivos semanales.
+con formato condicional por rangos y generación de reportes diarios, semanales
+y mensuales con cálculo correcto de porcentajes de éxito basados en objetivos.
 """
 
 import os
 import glob
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+import calendar
 
 try:
     import openpyxl
@@ -21,7 +22,7 @@ except ImportError:
 
 
 class ReportService:
-    """Servicio para generar reportes optimizados en formato Excel con cálculo corregido de éxito semanal."""
+    """Servicio para generar reportes optimizados en formato Excel con cálculo corregido de éxito semanal y mensual."""
 
     def __init__(self):
         """Inicializa el servicio de reportes."""
@@ -120,6 +121,55 @@ class ReportService:
         workbook.save(file_path)
         return str(file_path)
 
+    def generate_monthly_profiles_report(self):
+        """
+        Genera un reporte mensual con cálculo corregido de porcentajes de éxito.
+        Multiplica las ejecuciones óptimas diarias por los días del mes para obtener el objetivo mensual.
+
+        Returns:
+            str: Ruta del archivo Excel generado
+        """
+        if openpyxl is None:
+            raise Exception("openpyxl no está instalado. Ejecute: pip install openpyxl")
+
+        # Obtener fechas del mes actual
+        today = datetime.now().date()
+        # Primer día del mes
+        start_of_month = date(today.year, today.month, 1)
+        # Último día del mes
+        _, last_day = calendar.monthrange(today.year, today.month)
+        end_of_month = date(today.year, today.month, last_day)
+
+        # Buscar y procesar reportes del mes
+        monthly_data = self._process_monthly_reports(start_of_month, end_of_month)
+
+        if not monthly_data['reports_found']:
+            raise Exception("No se encontraron reportes diarios para el mes actual")
+
+        # Crear archivo de reporte mensual
+        file_path = self._create_monthly_file(start_of_month, end_of_month)
+
+        # Generar reporte
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Reporte Mensual"
+
+        # Configurar estilos
+        styles = self._get_report_styles()
+
+        # Crear contenido del reporte
+        self._add_monthly_header(worksheet, start_of_month, end_of_month, len(monthly_data['aggregated_data']), styles)
+        self._add_table_headers(worksheet, styles)
+        self._add_monthly_profile_data(worksheet, monthly_data['aggregated_data'], styles)
+        self._format_daily_worksheet(worksheet)
+
+        # Agregar resumen mensual
+        summary_sheet = workbook.create_sheet("Resumen Mensual")
+        self._add_monthly_summary_sheet(summary_sheet, monthly_data, start_of_month, end_of_month)
+
+        workbook.save(file_path)
+        return str(file_path)
+
     def _process_weekly_reports(self, start_of_week, end_of_week):
         """Procesa los reportes diarios de la semana y agrega los datos correctamente."""
         weekly_reports = []
@@ -190,6 +240,80 @@ class ReportService:
             'reports_count': len(weekly_reports)
         }
 
+    def _process_monthly_reports(self, start_of_month, end_of_month):
+        """Procesa los reportes diarios del mes y agrega los datos correctamente."""
+        monthly_reports = []
+        pattern = str(self.reports_dir / "reporte_perfiles_*.xlsx")
+
+        # Buscar archivos del mes
+        for file_path in glob.glob(pattern):
+            try:
+                file_name = os.path.basename(file_path)
+                date_part = file_name.split('_')[2].split('.')[0][:8]
+                file_date = datetime.strptime(date_part, "%Y%m%d").date()
+
+                if start_of_month <= file_date <= end_of_month:
+                    monthly_reports.append(file_path)
+            except (ValueError, IndexError):
+                continue
+
+        # Procesar datos agregados
+        aggregated_data = {}
+
+        # Calcular el número de días en el mes
+        days_in_month = (end_of_month - start_of_month).days + 1
+
+        for report_path in monthly_reports:
+            try:
+                wb = openpyxl.load_workbook(report_path, data_only=True)
+                ws = wb.active
+
+                for row in range(5, ws.max_row + 1):
+                    profile_name = ws.cell(row=row, column=1).value
+                    if not profile_name:
+                        continue
+
+                    executions = ws.cell(row=row, column=2).value or 0
+                    optimal_cell = ws.cell(row=row, column=3).value
+                    success_display = ws.cell(row=row, column=4).value
+                    is_automatic = ws.cell(row=row, column=5).value == "X"
+                    is_manual = ws.cell(row=row, column=6).value == "X"
+                    last_search = ws.cell(row=row, column=7).value
+
+                    # Procesar ejecuciones óptimas
+                    daily_optimal = self._extract_optimal_value(optimal_cell)
+                    has_tracking = daily_optimal > 0
+
+                    if profile_name not in aggregated_data:
+                        aggregated_data[profile_name] = {
+                            'executions': 0,
+                            'daily_optimal': daily_optimal,
+                            'monthly_optimal': daily_optimal * days_in_month if has_tracking else 0,
+                            'has_tracking': has_tracking,
+                            'is_automatic': is_automatic,
+                            'is_manual': is_manual,
+                            'last_search': last_search
+                        }
+
+                    # Acumular ejecuciones
+                    aggregated_data[profile_name]['executions'] += executions
+
+                    # Actualizar última búsqueda si es más reciente
+                    if last_search and (not aggregated_data[profile_name]['last_search'] or
+                                        last_search > aggregated_data[profile_name]['last_search']):
+                        aggregated_data[profile_name]['last_search'] = last_search
+
+            except Exception as e:
+                print(f"Error procesando archivo {report_path}: {e}")
+                continue
+
+        return {
+            'aggregated_data': aggregated_data,
+            'reports_found': len(monthly_reports),
+            'reports_count': len(monthly_reports),
+            'days_in_month': days_in_month
+        }
+
     def _extract_optimal_value(self, optimal_cell):
         """Extrae el valor numérico de ejecuciones óptimas de la celda."""
         if not optimal_cell:
@@ -199,7 +323,7 @@ class ReportService:
             return max(0, int(optimal_cell))
 
         if isinstance(optimal_cell, str):
-            # Extraer número de strings como "🎯 30" o "➖ Deshabilitado"
+            # Extraer número de strings como "🎯 30" o "◼ Deshabilitado"
             import re
             if "deshabilitado" in optimal_cell.lower() or "n/a" in optimal_cell.lower():
                 return 0
@@ -215,6 +339,12 @@ class ReportService:
         if weekly_optimal <= 0:
             return None
         return (executions / weekly_optimal) * 100
+
+    def _calculate_monthly_success_percentage(self, executions, monthly_optimal):
+        """Calcula el porcentaje de éxito mensual correctamente."""
+        if monthly_optimal <= 0:
+            return None
+        return (executions / monthly_optimal) * 100
 
     def _get_success_format(self, percentage):
         """Obtiene el formato apropiado basado en el porcentaje de éxito."""
@@ -253,7 +383,7 @@ class ReportService:
             if data['has_tracking']:
                 cell.value = f"🎯 {data['weekly_optimal']} (7 días)"
             else:
-                cell.value = "➖ Deshabilitado"
+                cell.value = "◼ Deshabilitado"
             cell.alignment = Alignment(horizontal="center")
             cell.border = styles['border']
 
@@ -261,6 +391,77 @@ class ReportService:
             cell = worksheet.cell(row=row_num, column=4)
             success_percentage = self._calculate_weekly_success_percentage(
                 data['executions'], data['weekly_optimal']
+            )
+
+            success_display, fill_color, font_color = self._get_success_format(success_percentage)
+            cell.value = success_display
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            if fill_color and font_color:
+                cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+                cell.font = Font(bold=True, color=font_color)
+
+            # Bot Automático
+            cell = worksheet.cell(row=row_num, column=5)
+            if data['is_automatic']:
+                cell.value = "X"
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Bot Manual
+            cell = worksheet.cell(row=row_num, column=6)
+            if data['is_manual']:
+                cell.value = "X"
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Última Búsqueda
+            cell = worksheet.cell(row=row_num, column=7)
+            cell.value = data['last_search'] if data['last_search'] else "Nunca"
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            row_num += 1
+
+    def _add_monthly_profile_data(self, worksheet, aggregated_data, styles):
+        """Agrega los datos de perfiles al reporte mensual con cálculos corregidos."""
+        row_num = 5
+
+        for profile_name, data in aggregated_data.items():
+            # Nombre del Perfil
+            cell = worksheet.cell(row=row_num, column=1)
+            cell.value = profile_name
+            cell.border = styles['border']
+
+            # Ejecuciones Acumuladas
+            cell = worksheet.cell(row=row_num, column=2)
+            cell.value = data['executions']
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Ejecuciones Óptimas Mensuales
+            cell = worksheet.cell(row=row_num, column=3)
+            if data['has_tracking']:
+                days_count = data['monthly_optimal'] // data['daily_optimal'] if data['daily_optimal'] > 0 else 0
+                cell.value = f"🎯 {data['monthly_optimal']} ({days_count} días)"
+            else:
+                cell.value = "◼ Deshabilitado"
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Porcentaje de Éxito Mensual
+            cell = worksheet.cell(row=row_num, column=4)
+            success_percentage = self._calculate_monthly_success_percentage(
+                data['executions'], data['monthly_optimal']
             )
 
             success_display, fill_color, font_color = self._get_success_format(success_percentage)
@@ -355,6 +556,35 @@ class ReportService:
         worksheet.merge_cells('A1:G1')
         title_cell = worksheet['A1']
         title_cell.value = f"Reporte de Ejecuciones - Resumen Semanal (Semana {week_number})"
+        title_cell.font = styles['title_font']
+        title_cell.fill = styles['title_fill']
+        title_cell.alignment = styles['title_alignment']
+        title_cell.border = styles['border']
+
+        for col in range(1, 8):
+            worksheet.cell(row=1, column=col).border = styles['border']
+
+        worksheet.merge_cells('A2:G2')
+        subtitle_cell = worksheet['A2']
+        current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        period_text = f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+        subtitle_cell.value = f"Generado el {current_date} - Período: {period_text}"
+        subtitle_cell.font = styles['subtitle_font']
+        subtitle_cell.alignment = styles['subtitle_alignment']
+
+        for col in range(1, 8):
+            worksheet.cell(row=2, column=col).border = styles['border']
+
+        worksheet.row_dimensions[3].height = 10
+
+    def _add_monthly_header(self, worksheet, start_date, end_date, total_bots, styles):
+        """Agrega el encabezado para reportes mensuales."""
+        month_name = start_date.strftime("%B").capitalize()
+        year = start_date.year
+
+        worksheet.merge_cells('A1:G1')
+        title_cell = worksheet['A1']
+        title_cell.value = f"Reporte de Ejecuciones - Resumen Mensual ({month_name} {year})"
         title_cell.font = styles['title_font']
         title_cell.fill = styles['title_fill']
         title_cell.alignment = styles['title_alignment']
@@ -482,6 +712,14 @@ class ReportService:
         filename = f"reporte_semanal_{timestamp}_semana{week_number}.xlsx"
         return self.reports_dir / filename
 
+    def _create_monthly_file(self, start_date, end_date):
+        """Crea el nombre y ruta del archivo de reporte mensual."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        month_name = start_date.strftime("%B").lower()
+        year = start_date.year
+        filename = f"reporte_mensual_{timestamp}_{month_name}{year}.xlsx"
+        return self.reports_dir / filename
+
     def _add_summary_sheet(self, worksheet, profiles):
         """Agrega hoja de resumen para reporte diario."""
         worksheet.cell(row=1, column=1).value = "RESUMEN EJECUTIVO - DIARIO"
@@ -533,6 +771,74 @@ class ReportService:
         worksheet.cell(row=8, column=1).value = "Perfiles con seguimiento:"
         worksheet.cell(row=8, column=1).font = Font(bold=True)
         worksheet.cell(row=8, column=2).value = len(profiles_with_tracking)
+
+        worksheet.column_dimensions['A'].width = 40
+        worksheet.column_dimensions['B'].width = 30
+
+    def _add_monthly_summary_sheet(self, worksheet, monthly_data, start_date, end_date):
+        """Agrega hoja de resumen mensual con métricas corregidas."""
+        worksheet.cell(row=1, column=1).value = "RESUMEN EJECUTIVO - MENSUAL"
+        worksheet.cell(row=1, column=1).font = Font(bold=True, size=16, color="366092")
+        worksheet.merge_cells('A1:B1')
+
+        current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        worksheet.cell(row=3, column=1).value = "Fecha de generación:"
+        worksheet.cell(row=3, column=1).font = Font(bold=True)
+        worksheet.cell(row=3, column=2).value = current_date
+
+        month_name = start_date.strftime("%B").capitalize()
+        year = start_date.year
+        period_text = f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+
+        worksheet.cell(row=4, column=1).value = "Mes:"
+        worksheet.cell(row=4, column=1).font = Font(bold=True)
+        worksheet.cell(row=4, column=2).value = f"{month_name} {year}"
+
+        worksheet.cell(row=5, column=1).value = "Período completo:"
+        worksheet.cell(row=5, column=1).font = Font(bold=True)
+        worksheet.cell(row=5, column=2).value = period_text
+
+        worksheet.cell(row=6, column=1).value = "Días en el mes:"
+        worksheet.cell(row=6, column=1).font = Font(bold=True)
+        worksheet.cell(row=6, column=2).value = monthly_data['days_in_month']
+
+        worksheet.cell(row=7, column=1).value = "Reportes diarios incluidos:"
+        worksheet.cell(row=7, column=1).font = Font(bold=True)
+        worksheet.cell(row=7, column=2).value = monthly_data['reports_count']
+
+        # Agregar métricas de éxito mensual
+        profiles_with_tracking = [
+            data for data in monthly_data['aggregated_data'].values()
+            if data['has_tracking']
+        ]
+
+        # Calcular métricas acumuladas mensuales
+        total_executions = sum(data['executions'] for data in monthly_data['aggregated_data'].values())
+        optimal_profiles = sum(1 for data in profiles_with_tracking
+                               if self._calculate_monthly_success_percentage(data['executions'],
+                                                                             data['monthly_optimal']) >= 100)
+
+        worksheet.cell(row=9, column=1).value = "MÉTRICAS DE ÉXITO MENSUAL"
+        worksheet.cell(row=9, column=1).font = Font(bold=True, size=14, color="006400")
+
+        worksheet.cell(row=10, column=1).value = "Perfiles con seguimiento:"
+        worksheet.cell(row=10, column=1).font = Font(bold=True)
+        worksheet.cell(row=10, column=2).value = len(profiles_with_tracking)
+
+        worksheet.cell(row=11, column=1).value = "Perfiles que alcanzaron objetivo mensual:"
+        worksheet.cell(row=11, column=1).font = Font(bold=True)
+        worksheet.cell(row=11, column=2).value = optimal_profiles
+
+        worksheet.cell(row=12, column=1).value = "Total de ejecuciones en el mes:"
+        worksheet.cell(row=12, column=1).font = Font(bold=True)
+        worksheet.cell(row=12, column=2).value = total_executions
+
+        # Calcular tasa de éxito general
+        if profiles_with_tracking:
+            success_rate = (optimal_profiles / len(profiles_with_tracking)) * 100
+            worksheet.cell(row=13, column=1).value = "Tasa de éxito general:"
+            worksheet.cell(row=13, column=1).font = Font(bold=True)
+            worksheet.cell(row=13, column=2).value = f"{success_rate:.1f}%"
 
         worksheet.column_dimensions['A'].width = 40
         worksheet.column_dimensions['B'].width = 30

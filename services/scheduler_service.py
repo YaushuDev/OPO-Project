@@ -1,17 +1,18 @@
 # scheduler_service.py
 """
 Servicio modular para programación de tareas automáticas.
-Implementa servicios especializados para programación diaria y semanal
-con manejo robusto de hilos independientes.
+Implementa servicios especializados para programación diaria, semanal y mensual
+con manejo robusto de hilos independientes y cálculo inteligente de próximas ejecuciones.
 """
 
 import json
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import os
 from pathlib import Path
 from abc import ABC, abstractmethod
+import calendar
 
 
 class BaseSchedulerService(ABC):
@@ -632,4 +633,259 @@ class WeeklySchedulerService(BaseSchedulerService):
 
             except Exception as e:
                 self._log(f"💥 Error al ejecutar reporte semanal programado: {e}")
+                return False
+
+
+class MonthlySchedulerService(BaseSchedulerService):
+    """Servicio específico para programación de tareas mensuales."""
+
+    def __init__(self, config_file, monthly_report_generator=None, log_callback=None):
+        """
+        Inicializa el servicio de programación mensual.
+
+        Args:
+            config_file (Path): Ruta al archivo de configuración
+            monthly_report_generator (callable, optional): Función para generar reportes mensuales
+            log_callback (callable, optional): Función para registrar logs
+        """
+        super().__init__(config_file, log_callback)
+        self.monthly_report_generator = monthly_report_generator
+
+        # Iniciar servicio
+        self._setup_scheduler()
+
+    def _setup_scheduler(self):
+        """Configura el programador mensual según los ajustes guardados."""
+        try:
+            config = self._load_config()
+            self.current_config = config
+
+            if not config:
+                self._log("Programador de reportes mensuales no activado")
+                return
+
+            # Verificar configuración específica mensual
+            monthly_config = config.get("monthly", {})
+            monthly_enabled = monthly_config.get("enabled", False)
+
+            if not monthly_enabled:
+                self._log("Programación de reportes mensuales desactivada")
+                return
+
+            # Iniciar hilo de programación
+            self._start_scheduler_thread()
+            self._log("✅ Servicio de programación mensual iniciado correctamente")
+
+        except Exception as e:
+            self._log(f"❌ Error al configurar programador mensual: {e}")
+
+    def _run_scheduler(self):
+        """Función optimizada que ejecuta el programador mensual en segundo plano."""
+        self._log("📋 Bucle del programador mensual iniciado")
+
+        # Valores iniciales para evitar ejecución inmediata
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+
+        while not self.stop_event.is_set():
+            try:
+                # Cargar configuración actual (puede haber cambiado)
+                config = self._load_config()
+                self.current_config = config
+
+                if not config:
+                    # Si está deshabilitado, esperar más tiempo
+                    if self.stop_event.wait(300):  # Espera 5 minutos o hasta que se señale parada
+                        break
+                    continue
+
+                # Verificar configuración específica mensual
+                monthly_config = config.get("monthly", {})
+                monthly_enabled = monthly_config.get("enabled", False)
+
+                if not monthly_enabled:
+                    if self.stop_event.wait(300):
+                        break
+                    continue
+
+                now = datetime.now()
+
+                # Comprobar reportes mensuales
+                self._check_monthly_execution(now, monthly_config)
+
+                # Para chequeos mensuales, una verificación cada hora es suficiente
+                if self.stop_event.wait(3600):  # 1 hora
+                    break
+
+            except Exception as e:
+                consecutive_errors += 1
+                self._log(f"💥 Error en el bucle del programador mensual: {e}")
+
+                # Pausa más larga en caso de error
+                sleep_time = min(3600, 300 * consecutive_errors)  # Máximo 1 hora
+                if self.stop_event.wait(sleep_time):
+                    break
+
+        self._log("👋 Bucle del programador mensual terminado")
+
+    def _check_monthly_execution(self, now, monthly_config):
+        """
+        Comprueba si es momento de ejecutar reportes mensuales.
+
+        Args:
+            now (datetime): Tiempo actual
+            monthly_config (dict): Configuración mensual
+        """
+        current_time = now.strftime("%H:%M")
+        scheduled_time = monthly_config.get("time", "09:00")
+        scheduled_day = monthly_config.get("day", "1")  # Día del mes (1-31 o "last")
+
+        # Determinar si hoy es el día programado
+        is_scheduled_day = False
+
+        if scheduled_day == "last":
+            # Último día del mes
+            last_day = calendar.monthrange(now.year, now.month)[1]
+            is_scheduled_day = now.day == last_day
+        else:
+            # Día específico del mes
+            try:
+                day_num = int(scheduled_day)
+                # Si el día es mayor que el último día del mes, usar el último día
+                last_day = calendar.monthrange(now.year, now.month)[1]
+                target_day = min(day_num, last_day)
+                is_scheduled_day = now.day == target_day
+            except (ValueError, TypeError):
+                self._log(f"⚠️ Configuración inválida para día del mes: {scheduled_day}")
+                is_scheduled_day = False
+
+        # Calcular próxima ejecución mensual para logs
+        self._calculate_next_execution(monthly_config, now)
+
+        # Verificar si hoy es el día programado y si es la hora configurada
+        # Además, verificar que no se haya ejecutado hoy todavía
+        should_execute = (
+                is_scheduled_day and
+                current_time == scheduled_time and
+                (not self.last_execution_time or self.last_execution_time.date() != now.date())
+        )
+
+        if should_execute:
+            day_description = "último día" if scheduled_day == "last" else f"día {scheduled_day}"
+            self._log(f"⏰ Ejecutando reporte mensual programado: {day_description} {scheduled_time}")
+
+            # Ejecutar reporte mensual de manera thread-safe
+            success = self._execute_scheduled_task()
+
+            if success:
+                self.last_execution_time = now
+                self._log("✅ Reporte mensual programado ejecutado exitosamente")
+            else:
+                self._log(f"❌ Error en reporte mensual programado")
+
+    def _calculate_next_execution(self, monthly_config, current_time):
+        """
+        Calcula y guarda la próxima ejecución programada mensual.
+
+        Args:
+            monthly_config (dict): Configuración mensual
+            current_time (datetime): Tiempo actual
+        """
+        try:
+            if not monthly_config.get("enabled", False):
+                self.next_execution = None
+                return
+
+            scheduled_day = monthly_config.get("day", "1")
+            scheduled_time = monthly_config.get("time", "09:00")
+            hour, minute = map(int, scheduled_time.split(":"))
+
+            # Determinar fecha objetivo
+            target_date = None
+            current_date = current_time.date()
+
+            # Primero comprobar si la ejecución sería hoy
+            if scheduled_day == "last":
+                # Último día del mes
+                last_day = calendar.monthrange(current_date.year, current_date.month)[1]
+                if current_date.day == last_day:
+                    # Es hoy, comprobar la hora
+                    scheduled_datetime = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if scheduled_datetime > current_time:
+                        target_date = current_date
+            else:
+                # Día específico
+                try:
+                    day_num = int(scheduled_day)
+                    last_day = calendar.monthrange(current_date.year, current_date.month)[1]
+                    # Si el día especificado es mayor que el último día, usar el último día
+                    target_day = min(day_num, last_day)
+
+                    if current_date.day == target_day:
+                        # Es hoy, comprobar la hora
+                        scheduled_datetime = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                        if scheduled_datetime > current_time:
+                            target_date = current_date
+                except (ValueError, TypeError):
+                    self._log(f"⚠️ Configuración inválida para día del mes: {scheduled_day}")
+
+            # Si no es hoy o ya pasó la hora, calcular para el próximo mes
+            if target_date is None:
+                # Determinar el mes siguiente
+                if current_date.month == 12:
+                    next_month = 1
+                    next_year = current_date.year + 1
+                else:
+                    next_month = current_date.month + 1
+                    next_year = current_date.year
+
+                if scheduled_day == "last":
+                    # Último día del próximo mes
+                    last_day = calendar.monthrange(next_year, next_month)[1]
+                    target_date = date(next_year, next_month, last_day)
+                else:
+                    # Día específico del próximo mes
+                    try:
+                        day_num = int(scheduled_day)
+                        last_day = calendar.monthrange(next_year, next_month)[1]
+                        # Si el día especificado es mayor que el último día, usar el último día
+                        target_day = min(day_num, last_day)
+                        target_date = date(next_year, next_month, target_day)
+                    except (ValueError, TypeError):
+                        # Fallback a primer día si hay error
+                        target_date = date(next_year, next_month, 1)
+
+            # Combinar fecha y hora
+            self.next_execution = datetime.combine(
+                target_date,
+                datetime.min.time().replace(hour=hour, minute=minute)
+            )
+
+        except Exception as e:
+            self._log(f"⚠️ Error calculando próxima ejecución mensual: {e}")
+            self.next_execution = None
+
+    def _execute_scheduled_task(self):
+        """
+        Ejecuta el reporte mensual programado de manera thread-safe.
+
+        Returns:
+            bool: True si la ejecución fue exitosa, False en caso contrario
+        """
+        with self.operation_lock:
+            try:
+                if self.monthly_report_generator:
+                    # Actualizar timestamp de última ejecución
+                    self.last_execution_time = datetime.now()
+
+                    # Ejecutar generador de reportes mensuales
+                    result = self.monthly_report_generator()
+
+                    return bool(result)
+                else:
+                    self._log("⚠️ No se encontró función generadora de reportes mensuales")
+                    return False
+
+            except Exception as e:
+                self._log(f"💥 Error al ejecutar reporte mensual programado: {e}")
                 return False

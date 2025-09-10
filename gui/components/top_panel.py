@@ -3,7 +3,7 @@
 Componente del panel superior del bot optimizado con threading.
 Previene bloqueos de UI durante operaciones pesadas como búsquedas IMAP y generación de reportes.
 Incluye indicadores de progreso y manejo asíncrono de operaciones con opciones
-separadas para programación diaria y semanal.
+separadas para programación diaria, semanal y mensual.
 """
 
 import tkinter as tk
@@ -17,9 +17,10 @@ from gui.models.profile_manager import ProfileManager
 from gui.components.profile_modal import ProfileModal
 from gui.components.daily_scheduler_modal import DailySchedulerModal
 from gui.components.weekly_scheduler_modal import WeeklySchedulerModal
+from gui.components.monthly_scheduler_modal import MonthlySchedulerModal
 from services.report_service import ReportService
 from services.email_service import EmailService
-from services.scheduler_service import DailySchedulerService, WeeklySchedulerService
+from services.scheduler_service import DailySchedulerService, WeeklySchedulerService, MonthlySchedulerService
 from services.search_service import SearchService
 from services.progress_service import ProgressService
 
@@ -54,6 +55,7 @@ class TopPanel:
         self.is_searching = False
         self.is_generating_report = False
         self.is_generating_weekly_report = False
+        self.is_generating_monthly_report = False  # Nueva variable para reportes mensuales
 
         # Ruta al archivo de configuración
         self.config_file = Path("config") / "scheduler_config.json"
@@ -68,6 +70,13 @@ class TopPanel:
         self.weekly_scheduler = WeeklySchedulerService(
             self.config_file,
             weekly_report_generator=self._generate_scheduled_weekly_report,
+            log_callback=self._add_log
+        )
+
+        # Inicializar el servicio de programación mensual
+        self.monthly_scheduler = MonthlySchedulerService(
+            self.config_file,
+            monthly_report_generator=self._generate_scheduled_monthly_report,
             log_callback=self._add_log
         )
 
@@ -115,13 +124,21 @@ class TopPanel:
         )
         self.generate_weekly_report_btn.grid(row=0, column=1, padx=(0, 5))
 
+        # Botón para reporte mensual
+        self.generate_monthly_report_btn = ttk.Button(
+            self.button_frame,
+            text="Generar Reporte Mensual",
+            command=self._generate_monthly_report_async
+        )
+        self.generate_monthly_report_btn.grid(row=0, column=2, padx=(0, 5))
+
         # Botón de programación diaria
         self.schedule_daily_btn = ttk.Button(
             self.button_frame,
             text="Programar Diarios",
             command=self._open_daily_scheduler_modal
         )
-        self.schedule_daily_btn.grid(row=0, column=2, padx=(0, 5))
+        self.schedule_daily_btn.grid(row=0, column=3, padx=(0, 5))
 
         # Botón de programación semanal
         self.schedule_weekly_btn = ttk.Button(
@@ -129,21 +146,29 @@ class TopPanel:
             text="Programar Semanales",
             command=self._open_weekly_scheduler_modal
         )
-        self.schedule_weekly_btn.grid(row=0, column=3, padx=(0, 5))
+        self.schedule_weekly_btn.grid(row=0, column=4, padx=(0, 5))
+
+        # Botón de programación mensual
+        self.schedule_monthly_btn = ttk.Button(
+            self.button_frame,
+            text="Programar Mensuales",
+            command=self._open_monthly_scheduler_modal
+        )
+        self.schedule_monthly_btn.grid(row=0, column=5, padx=(0, 5))
 
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
             command=self._run_global_search_async
         )
-        self.search_all_btn.grid(row=0, column=4, padx=(0, 5))
+        self.search_all_btn.grid(row=0, column=6, padx=(0, 5))
 
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=5)
+        self.new_btn.grid(row=0, column=7)
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -386,6 +411,39 @@ class TopPanel:
             self._add_log(f"❌ Error al abrir configuración de programación semanal: {e}")
             messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
 
+    def _open_monthly_scheduler_modal(self):
+        """Abre el modal de programación mensual de manera segura."""
+        if self._check_operation_in_progress():
+            return
+
+        try:
+            if self.bottom_right_panel:
+                self.bottom_right_panel.add_log_entry(
+                    "Abriendo configuración de programación de reportes mensuales")
+
+            # Deshabilitar botón temporalmente
+            self.schedule_monthly_btn.config(state="disabled")
+
+            # Abrir modal de configuración
+            monthly_scheduler_modal = MonthlySchedulerModal(self.parent_frame, self.bottom_right_panel)
+
+            # Programar rehabilitación del botón y reinicio del servicio
+            def restore_and_restart():
+                self.schedule_monthly_btn.config(state="normal")
+                # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
+                try:
+                    self.monthly_scheduler.restart()
+                    self._add_log("✅ Configuración de programación mensual actualizada")
+                except Exception as e:
+                    self._add_log(f"⚠️ Error al reiniciar programación mensual: {e}")
+
+            self.parent_frame.after(1000, restore_and_restart)
+
+        except Exception as e:
+            self.schedule_monthly_btn.config(state="normal")
+            self._add_log(f"❌ Error al abrir configuración de programación mensual: {e}")
+            messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
+
     def _check_operation_in_progress(self):
         """
         Verifica si hay una operación en progreso.
@@ -393,7 +451,7 @@ class TopPanel:
         Returns:
             bool: True si hay una operación en progreso, False en caso contrario
         """
-        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report or self.is_generating_monthly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Hay una operación en curso. Espera a que termine antes de configurar la programación."
@@ -448,7 +506,7 @@ class TopPanel:
 
     def _run_global_search_async(self):
         """Ejecuta búsqueda global de manera asíncrona para prevenir bloqueos."""
-        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report or self.is_generating_monthly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Ya hay una operación en curso. Espera a que termine."
@@ -592,7 +650,7 @@ class TopPanel:
 
     def _generate_report_async(self):
         """Genera reporte de manera asíncrona para prevenir bloqueos."""
-        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report or self.is_generating_monthly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Ya hay una operación en curso. Espera a que termine."
@@ -629,7 +687,7 @@ class TopPanel:
 
     def _generate_weekly_report_async(self):
         """Genera reporte semanal de manera asíncrona para prevenir bloqueos."""
-        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report:
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report or self.is_generating_monthly_report:
             messagebox.showwarning(
                 "Operación en Progreso",
                 "Ya hay una operación en curso. Espera a que termine."
@@ -656,6 +714,37 @@ class TopPanel:
                 self.parent_frame.after(0, lambda: self._finish_weekly_report_operation())
 
         thread = threading.Thread(target=weekly_report_thread, daemon=True)
+        thread.start()
+
+    def _generate_monthly_report_async(self):
+        """Genera reporte mensual de manera asíncrona para prevenir bloqueos."""
+        if self.is_searching or self.is_generating_report or self.is_generating_weekly_report or self.is_generating_monthly_report:
+            messagebox.showwarning(
+                "Operación en Progreso",
+                "Ya hay una operación en curso. Espera a que termine."
+            )
+            return
+
+        # Marcar como en progreso y deshabilitar botones
+        self.is_generating_monthly_report = True
+        self._set_buttons_state("disabled")
+
+        # Iniciar operación de progreso
+        self.progress_service.start_operation(
+            "Generación de Reporte Mensual",
+            3,  # Búsqueda + generación + envío
+            can_cancel=False
+        )
+
+        # Ejecutar en hilo separado
+        def monthly_report_thread():
+            try:
+                self._perform_monthly_report_generation_threaded()
+            finally:
+                # Rehabilitar botones y marcar como terminado
+                self.parent_frame.after(0, lambda: self._finish_monthly_report_operation())
+
+        thread = threading.Thread(target=monthly_report_thread, daemon=True)
         thread.start()
 
     def _perform_report_generation_threaded(self, profiles):
@@ -716,8 +805,6 @@ class TopPanel:
             error_msg = f"Error durante generación de reporte: {e}"
             self.progress_service.error_operation(error_msg)
 
-    # Modificación parcial para top_panel.py
-
     def _perform_weekly_report_generation_threaded(self):
         """Ejecuta la generación de reporte semanal en un hilo separado."""
         try:
@@ -758,6 +845,48 @@ class TopPanel:
 
         except Exception as e:
             error_msg = f"Error durante generación de reporte semanal: {e}"
+            self.progress_service.error_operation(error_msg)
+
+    def _perform_monthly_report_generation_threaded(self):
+        """Ejecuta la generación de reporte mensual en un hilo separado."""
+        try:
+            self.progress_service.log_progress("=" * 50)
+            self.progress_service.log_progress("📊 GENERACIÓN DE REPORTE MENSUAL")
+            self.progress_service.log_progress("=" * 50)
+
+            # PASO 1: Buscar reportes existentes
+            self.progress_service.update_progress(1, 3, "Buscando reportes diarios del mes...")
+
+            # PASO 2: Generar reporte mensual
+            self.progress_service.update_progress(2, 3, "Generando reporte mensual...")
+
+            try:
+                report_path = self.report_service.generate_monthly_profiles_report()
+                self.progress_service.log_progress(f"✅ Reporte mensual generado: {report_path}")
+
+                # PASO 3: Enviar por correo
+                self.progress_service.update_progress(3, 3, "Enviando reporte mensual por correo...")
+
+                # Especificar report_type="monthly"
+                success = self.email_service.send_report(report_path, report_type="monthly")
+
+                if success:
+                    success_message = f"Reporte mensual enviado exitosamente: {report_path}"
+                    self.progress_service.complete_operation(success_message)
+
+                    # Mostrar resultado
+                    self.parent_frame.after(0, lambda: self._show_monthly_report_results(report_path))
+                else:
+                    error_msg = "Reporte mensual generado pero no se pudo enviar por correo"
+                    self.progress_service.error_operation(error_msg)
+
+            except Exception as e:
+                error_msg = f"Error generando reporte mensual: {str(e)}"
+                self.progress_service.error_operation(error_msg)
+                self.parent_frame.after(0, lambda: messagebox.showerror("Error", error_msg))
+
+        except Exception as e:
+            error_msg = f"Error durante generación de reporte mensual: {e}"
             self.progress_service.error_operation(error_msg)
 
     def _run_global_search_silent_threaded(self, profiles):
@@ -810,6 +939,17 @@ class TopPanel:
             f"Ruta del archivo: {report_path}"
         )
 
+    def _show_monthly_report_results(self, report_path):
+        """Muestra los resultados de la generación de reporte mensual."""
+        messagebox.showinfo(
+            "✅ Reporte Mensual Enviado",
+            f"Reporte mensual generado y enviado correctamente.\n\n"
+            f"El reporte mensual contiene los datos acumulados\n"
+            f"de todos los reportes diarios del mes actual, con\n"
+            f"análisis de tendencias y comparativas mensuales.\n\n"
+            f"Ruta del archivo: {report_path}"
+        )
+
     def _finish_report_operation(self):
         """Finaliza la operación de reporte y restaura la UI."""
         self.is_generating_report = False
@@ -820,10 +960,15 @@ class TopPanel:
         self.is_generating_weekly_report = False
         self._set_buttons_state("normal")
 
+    def _finish_monthly_report_operation(self):
+        """Finaliza la operación de reporte mensual y restaura la UI."""
+        self.is_generating_monthly_report = False
+        self._set_buttons_state("normal")
+
     def _set_buttons_state(self, state):
         """Cambia el estado de todos los botones principales."""
-        buttons = [self.generate_report_btn, self.generate_weekly_report_btn,
-                   self.schedule_daily_btn, self.schedule_weekly_btn,
+        buttons = [self.generate_report_btn, self.generate_weekly_report_btn, self.generate_monthly_report_btn,
+                   self.schedule_daily_btn, self.schedule_weekly_btn, self.schedule_monthly_btn,
                    self.search_all_btn, self.new_btn]
         for btn in buttons:
             btn.config(state=state)
@@ -928,6 +1073,45 @@ class TopPanel:
             self._add_log(error_msg)
             return False
 
+    def _generate_scheduled_monthly_report(self):
+        """
+        Genera y envía reporte mensual programado sin interacción del usuario.
+
+        Returns:
+            bool: True si se generó correctamente, False en caso contrario
+        """
+        self._add_log("=" * 40)
+        self._add_log("📅 REPORTE MENSUAL PROGRAMADO INICIADO")
+
+        try:
+            # Generar reporte mensual
+            self._add_log("📊 Generando reporte mensual programado...")
+
+            try:
+                report_path = self.report_service.generate_monthly_profiles_report()
+                self._add_log(f"✅ Reporte mensual programado generado: {report_path}")
+
+                # Enviar por correo - Especificar report_type="monthly"
+                success = self.email_service.send_report(report_path, report_type="monthly")
+
+                if success:
+                    self._add_log(f"✉️ Reporte mensual programado enviado: {report_path}")
+                    self._add_log("=" * 40)
+                    return True
+                else:
+                    self._add_log("❌ Error al enviar reporte mensual programado por correo")
+                    return False
+
+            except Exception as e:
+                error_msg = f"Error generando reporte mensual programado: {str(e)}"
+                self._add_log(error_msg)
+                return False
+
+        except Exception as e:
+            error_msg = f"💥 Error durante generación de reporte mensual programado: {e}"
+            self._add_log(error_msg)
+            return False
+
     def _add_log(self, message):
         """Agrega mensaje al log de manera thread-safe."""
         if self.bottom_right_panel:
@@ -957,7 +1141,9 @@ class TopPanel:
             "manual_bots": manual_bots,
             "enhanced_search": True,
             "weekly_reports": True,
+            "monthly_reports": True,
             "daily_scheduler": True,
             "weekly_scheduler": True,
+            "monthly_scheduler": True,
             "optimized_ui": True
         }

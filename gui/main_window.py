@@ -24,7 +24,7 @@ class MainWindow:
     def _setup_window(self):
         """Configura las propiedades básicas de la ventana."""
         self.root.title("Bot de Búsqueda de Correos - v2.0")
-        self.root.geometry("1200x800")
+        self.root.geometry("1400x800")
         self.root.minsize(800, 600)
 
         # Configurar estilo

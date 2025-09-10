@@ -2,7 +2,7 @@
 """
 Servicio para envío de correos electrónicos con reportes adjuntos.
 Maneja el envío de reportes Excel por correo usando configuración SMTP,
-permitiendo plantillas de asunto diferentes para reportes diarios y semanales.
+permitiendo plantillas de asunto diferentes para reportes diarios, semanales y mensuales.
 """
 
 import os
@@ -31,7 +31,7 @@ class EmailService:
 
         Args:
             report_path (str): Ruta del archivo de reporte a enviar
-            report_type (str): Tipo de reporte ('daily' o 'weekly')
+            report_type (str): Tipo de reporte ('daily', 'weekly' o 'monthly')
 
         Returns:
             bool: True si se envió exitosamente, False en caso contrario
@@ -97,7 +97,7 @@ class EmailService:
             smtp_config (dict): Configuración SMTP
             recipients_config (dict): Configuración de destinatarios
             report_path (str): Ruta del archivo de reporte
-            report_type (str): Tipo de reporte ('daily' o 'weekly')
+            report_type (str): Tipo de reporte ('daily', 'weekly' o 'monthly')
 
         Returns:
             MIMEMultipart: Mensaje de correo preparado
@@ -119,6 +119,10 @@ class EmailService:
             subject_template = recipients_config.get('subject_template_weekly',
                                                    "Reporte Semanal de Búsqueda de Correos - {date}")
             report_type_text = "semanal"
+        elif report_type == "monthly":
+            subject_template = recipients_config.get('subject_template_monthly',
+                                                   "Reporte Mensual de Búsqueda de Correos - {date}")
+            report_type_text = "mensual"
         else:  # default: daily
             subject_template = recipients_config.get('subject_template_daily',
                                                    "Reporte Diario de Búsqueda de Correos - {date}")
@@ -167,7 +171,21 @@ Se adjunta el reporte {report_type_text} de búsqueda de correos generado autom�
 - Estadísticas de correos encontrados
 - Fechas de última búsqueda por perfil
 - Resumen ejecutivo con métricas clave
+"""
 
+        # Añadir información adicional según el tipo de reporte
+        if report_type_text == "semanal":
+            body += """
+El reporte semanal contiene datos consolidados de toda la semana
+con métricas acumuladas y análisis comparativo semanal.
+"""
+        elif report_type_text == "mensual":
+            body += """
+El reporte mensual contiene un análisis completo del rendimiento durante el mes,
+con métricas acumuladas, tendencias mensuales y estadísticas comparativas.
+"""
+
+        body += """
 Este reporte ha sido generado automáticamente por el sistema de búsqueda de correos.
 
 Saludos cordiales,
