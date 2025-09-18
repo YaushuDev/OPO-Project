@@ -353,7 +353,7 @@ class SearchService:
         if not text:
             return set()
         return set(text.split())
-
+      
     def _analyze_messages(self, mail, message_ids, criterios, sender_filters):
         """
         Analiza mensajes para encontrar coincidencias con los criterios.
