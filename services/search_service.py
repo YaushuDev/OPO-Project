@@ -86,6 +86,17 @@ class SearchService:
         for i, criterio in enumerate(criterios, 1):
             self._log(f"  ✓ Criterio {i}: '{criterio}'")
 
+        sender_filters = []
+        if hasattr(profile, 'sender_filters') and profile.sender_filters:
+            sender_filters = [s for s in profile.sender_filters if isinstance(s, str) and s.strip()]
+
+        if sender_filters:
+            self._log(f"📮 Remitentes configurados: {len(sender_filters)}")
+            for sender in sender_filters:
+                self._log(f"  ↪ Remitente: {sender}")
+        else:
+            self._log("📮 Sin filtros de remitente específicos")
+
         start_time = datetime.now()
 
         try:
@@ -96,7 +107,7 @@ class SearchService:
                 return 0
 
             # Generar clave de caché para toda la búsqueda
-            cache_key = self._generate_cache_key(criterios)
+            cache_key = self._generate_cache_key(criterios, sender_filters)
 
             # Verificar caché
             if cache_key in self.search_cache:
@@ -110,7 +121,7 @@ class SearchService:
                     del self.search_cache[cache_key]
 
             # Realizar búsqueda IMAP mejorada
-            unique_emails = self._perform_enhanced_imap_search(smtp_config, criterios)
+            unique_emails = self._perform_enhanced_imap_search(smtp_config, criterios, sender_filters)
 
             # Guardar en caché
             cache_data = {
@@ -170,19 +181,21 @@ class SearchService:
 
         return unique_criteria
 
-    def _generate_cache_key(self, criterios):
+    def _generate_cache_key(self, criterios, sender_filters=None):
         """
         Genera una clave única para el caché basada en los criterios y la fecha.
 
         Args:
             criterios (list): Lista de criterios de búsqueda
+            sender_filters (list, optional): Lista de remitentes filtrados
 
         Returns:
             str: Clave de caché única
         """
         today_str = date.today().isoformat()
         criteria_str = "|".join(sorted([c.lower() for c in criterios]))
-        combined = f"{today_str}:{criteria_str}"
+        sender_str = "|".join(sorted([s.lower() for s in sender_filters])) if sender_filters else ""
+        combined = f"{today_str}:{criteria_str}:{sender_str}"
         return hashlib.md5(combined.encode()).hexdigest()
 
     def _is_cache_valid(self, cache_data):
@@ -217,13 +230,14 @@ class SearchService:
         emails_str = "|".join(sorted(emails))
         return hashlib.md5(emails_str.encode()).hexdigest()
 
-    def _perform_enhanced_imap_search(self, smtp_config, criterios):
+    def _perform_enhanced_imap_search(self, smtp_config, criterios, sender_filters):
         """
         Realiza búsqueda IMAP mejorada con múltiples criterios y deduplicación.
 
         Args:
             smtp_config (dict): Configuración SMTP/IMAP
             criterios (list): Lista de criterios de búsqueda
+            sender_filters (list): Lista de remitentes filtrados
 
         Returns:
             set: Set de IDs únicos de correos que coinciden
@@ -267,7 +281,7 @@ class SearchService:
             self._log(f"📧 Analizando {total_candidates} correos candidatos...")
 
             # Analizar cada mensaje con todos los criterios
-            unique_emails = self._analyze_messages(mail, message_ids, criterios)
+            unique_emails = self._analyze_messages(mail, message_ids, criterios, sender_filters)
 
             self._log(f"✅ Análisis completado: {len(unique_emails)} correos únicos coinciden")
 
@@ -339,8 +353,8 @@ class SearchService:
         if not text:
             return set()
         return set(text.split())
-
-    def _analyze_messages(self, mail, message_ids, criterios):
+      
+    def _analyze_messages(self, mail, message_ids, criterios, sender_filters):
         """
         Analiza mensajes para encontrar coincidencias con los criterios.
 
@@ -348,6 +362,7 @@ class SearchService:
             mail: Conexión IMAP
             message_ids: Lista de IDs de mensajes
             criterios: Lista de criterios de búsqueda
+            sender_filters: Lista de remitentes filtrados
 
         Returns:
             set: Set de IDs únicos de correos que coinciden
@@ -358,6 +373,10 @@ class SearchService:
         # Crear patrones de búsqueda optimizados
         search_patterns = self._prepare_search_patterns(criterios)
         self._log(f"🎯 Patrones de búsqueda creados: {len(search_patterns)}")
+
+        sender_patterns = self._prepare_search_patterns(sender_filters) if sender_filters else []
+        if sender_patterns:
+            self._log(f"✉️ Patrones de remitente activos: {len(sender_patterns)}")
 
         processed = 0
         matches_by_criteria = defaultdict(int)
@@ -381,8 +400,15 @@ class SearchService:
                 # Extraer contenido para búsqueda
                 search_content = self._extract_search_content(email_message)
 
-                # Verificar coincidencias con cualquier criterio y combinación de título
+                # Verificar coincidencias con cualquier criterio, remitente y combinación de título
                 matched_criteria = set()
+                sender_match_label = None
+
+                if sender_patterns:
+                    sender_match, sender_match_label = self._sender_matches(search_content, sender_patterns)
+                    if not sender_match:
+                        continue
+
                 subject_match = self._subject_matches_all_keywords(
                     search_content,
                     search_patterns
@@ -399,7 +425,15 @@ class SearchService:
                 if subject_match:
                     matches_by_criteria['subject_combination'] += 1
 
-                if matched_criteria or subject_match:
+                message_matches = bool(matched_criteria or subject_match)
+
+                if sender_match_label:
+                    matches_by_criteria['sender_filter_total'] += 1
+                    matches_by_criteria[f"sender:{sender_match_label}"] += 1
+                    if not message_matches:
+                        message_matches = True
+
+                if message_matches:
                     unique_emails.add(msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id))
 
                 processed += 1
@@ -416,6 +450,10 @@ class SearchService:
             for criterio, count in matches_by_criteria.items():
                 if criterio == 'subject_combination':
                     label = 'Todos los criterios presentes en el asunto'
+                elif criterio == 'sender_filter_total':
+                    label = 'Remitentes filtrados (total)'
+                elif criterio.startswith('sender:'):
+                    label = f"Remitente coincidió: {criterio.split(':', 1)[1]}"
                 else:
                     label = criterio
                 self._log(f"  📌 '{label}': {count} coincidencias")
@@ -665,6 +703,30 @@ class SearchService:
                 return False
 
         return True
+
+    def _sender_matches(self, search_content, sender_patterns):
+        """Verifica si el remitente coincide con alguno de los patrones configurados."""
+        if not sender_patterns:
+            return (False, None)
+
+        sender_value = search_content.get('from', '')
+        sender_normalized = search_content.get('from_normalized')
+        sender_tokens = search_content.get('from_tokens')
+
+        if not sender_value and not sender_normalized:
+            return (False, None)
+
+        for pattern in sender_patterns:
+            if self._pattern_matches_field(
+                pattern,
+                sender_value,
+                sender_normalized,
+                sender_tokens,
+                allow_fuzzy=True
+            ):
+                return True, pattern.get('original')
+
+        return (False, None)
 
     def _is_fuzzy_match(self, normalized_field, normalized_criterio):
         """Evalúa coincidencias parciales para títulos similares."""

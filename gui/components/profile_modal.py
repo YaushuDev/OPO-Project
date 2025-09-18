@@ -36,6 +36,9 @@ class ProfileModal:
         self.search_criteria_2 = tk.StringVar()
         self.search_criteria_3 = tk.StringVar()
 
+        # Variable para filtro de remitente
+        self.sender_filter = tk.StringVar()
+
         # Variables para seguimiento óptimo
         self.track_optimal = tk.BooleanVar(value=profile.track_optimal if profile else False)
         self.optimal_executions = tk.StringVar(
@@ -53,10 +56,13 @@ class ProfileModal:
             if len(profile.search_criteria) >= 3:
                 self.search_criteria_3.set(profile.search_criteria[2])
 
+        if profile and profile.has_sender_filters():
+            self.sender_filter.set(", ".join(profile.sender_filters))
+
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Editar Perfil" if self.edit_mode else "Nuevo Perfil")
-        self.modal.geometry("520x700")
+        self.modal.geometry("520x760")
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
@@ -151,9 +157,33 @@ class ProfileModal:
         )
         criteria_3_entry.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(0, 20))
 
+        # Filtro de remitente
+        sender_label = ttk.Label(
+            main_frame,
+            text="Filtrar por Remitente (opcional):",
+            font=("Arial", 10, "bold")
+        )
+        sender_label.grid(row=10, column=0, columnspan=2, sticky="w", pady=(0, 5))
+
+        sender_entry = ttk.Entry(
+            main_frame,
+            textvariable=self.sender_filter,
+            width=50,
+            font=("Arial", 10)
+        )
+        sender_entry.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+
+        sender_hint = ttk.Label(
+            main_frame,
+            text="Puedes ingresar varios remitentes separados por coma.",
+            font=("Arial", 9),
+            foreground="gray"
+        )
+        sender_hint.grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 15))
+
         # Separador visual
         separator1 = ttk.Separator(main_frame, orient='horizontal')
-        separator1.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        separator1.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
         # Sección: Tipo de Bot
         bot_type_label = ttk.Label(
@@ -162,11 +192,11 @@ class ProfileModal:
             font=("Arial", 11, "bold"),
             foreground="purple"
         )
-        bot_type_label.grid(row=11, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        bot_type_label.grid(row=14, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Frame para radio buttons del tipo de bot
         bot_type_frame = ttk.Frame(main_frame)
-        bot_type_frame.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        bot_type_frame.grid(row=15, column=0, columnspan=2, sticky="ew", pady=(0, 15))
         bot_type_frame.columnconfigure(0, weight=1)
         bot_type_frame.columnconfigure(1, weight=1)
 
@@ -190,7 +220,7 @@ class ProfileModal:
 
         # Separador visual
         separator2 = ttk.Separator(main_frame, orient='horizontal')
-        separator2.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        separator2.grid(row=16, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
         # Sección de seguimiento óptimo
         optimal_label = ttk.Label(
@@ -199,7 +229,7 @@ class ProfileModal:
             font=("Arial", 11, "bold"),
             foreground="darkgreen"
         )
-        optimal_label.grid(row=14, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        optimal_label.grid(row=17, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Checkbox para habilitar seguimiento óptimo
         self.track_checkbox = ttk.Checkbutton(
@@ -208,14 +238,14 @@ class ProfileModal:
             variable=self.track_optimal,
             command=self._toggle_optimal_tracking
         )
-        self.track_checkbox.grid(row=15, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        self.track_checkbox.grid(row=18, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Campo para cantidad de ejecuciones óptimas
         ttk.Label(
             main_frame,
             text="Cantidad de Ejecuciones Óptimas:",
             font=("Arial", 10)
-        ).grid(row=16, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=19, column=0, sticky="w", pady=(0, 5))
 
         self.optimal_entry = ttk.Entry(
             main_frame,
@@ -223,11 +253,11 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        self.optimal_entry.grid(row=17, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        self.optimal_entry.grid(row=20, column=0, columnspan=2, sticky="ew", pady=(0, 20))
 
         # Botones
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=18, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=21, column=0, columnspan=2, sticky="ew")
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
@@ -319,42 +349,54 @@ class ProfileModal:
                 messagebox.showerror("Error", "La cantidad de ejecuciones óptimas debe ser un número válido")
                 return
 
+        sender_filters = self.sender_filter.get().strip()
+
         try:
             if self.edit_mode:
-                # Actualizar perfil existente con nuevos campos
-                self.profile.update(name, criterios, optimal_value, self.track_optimal.get(), bot_type)
-
-                # Usar el profile_manager para guardar
                 updated_profile = self.profile_manager.update_profile(
-                    self.profile.profile_id, name, criterios
+                    self.profile.profile_id,
+                    name,
+                    criterios,
+                    sender_filters=sender_filters,
+                    optimal_executions=optimal_value,
+                    track_optimal=self.track_optimal.get(),
+                    bot_type=bot_type
                 )
 
                 if updated_profile:
-                    # Actualizar los campos nuevos manualmente ya que update_profile no los maneja
-                    updated_profile.optimal_executions = optimal_value
-                    updated_profile.track_optimal = self.track_optimal.get()
-                    updated_profile.bot_type = bot_type
-                    self.profile_manager.save_profiles()
-
                     bot_type_display = "Automático" if bot_type == "automatico" else "Manual"
-                    mensaje = f"Perfil actualizado correctamente\n\nCriterios configurados: {len(criterios)}\nTipo de bot: {bot_type_display}"
+                    mensaje = (
+                        "Perfil actualizado correctamente\n\n"
+                        f"Criterios configurados: {len(criterios)}\n"
+                        f"Tipo de bot: {bot_type_display}"
+                    )
                     if self.track_optimal.get():
                         mensaje += f"\nSeguimiento óptimo: {optimal_value} ejecuciones"
+                    if updated_profile.has_sender_filters():
+                        remitentes = ", ".join(updated_profile.sender_filters)
+                        mensaje += f"\nRemitentes filtrados: {remitentes}"
                     messagebox.showinfo("Éxito", mensaje)
             else:
-                # Crear nuevo perfil
-                new_profile = self.profile_manager.add_profile(name, criterios)
+                new_profile = self.profile_manager.add_profile(
+                    name,
+                    criterios,
+                    sender_filters=sender_filters,
+                    bot_type=bot_type,
+                    track_optimal=self.track_optimal.get(),
+                    optimal_executions=optimal_value
+                )
                 if new_profile:
-                    # Configurar seguimiento óptimo y tipo de bot en el nuevo perfil
-                    new_profile.optimal_executions = optimal_value
-                    new_profile.track_optimal = self.track_optimal.get()
-                    new_profile.bot_type = bot_type
-                    self.profile_manager.save_profiles()
-
                     bot_type_display = "Automático" if bot_type == "automatico" else "Manual"
-                    mensaje = f"Perfil creado correctamente\n\nCriterios configurados: {len(criterios)}\nTipo de bot: {bot_type_display}"
+                    mensaje = (
+                        "Perfil creado correctamente\n\n"
+                        f"Criterios configurados: {len(criterios)}\n"
+                        f"Tipo de bot: {bot_type_display}"
+                    )
                     if self.track_optimal.get():
                         mensaje += f"\nSeguimiento óptimo: {optimal_value} ejecuciones"
+                    if new_profile.has_sender_filters():
+                        remitentes = ", ".join(new_profile.sender_filters)
+                        mensaje += f"\nRemitentes filtrados: {remitentes}"
                     messagebox.showinfo("Éxito", mensaje)
 
             # Llamar al callback si existe

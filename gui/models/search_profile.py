@@ -10,7 +10,6 @@ import json
 import uuid
 import re
 from datetime import datetime
-from pathlib import Path
 
 
 class SearchProfile:
@@ -22,13 +21,14 @@ class SearchProfile:
     MAX_CRITERIA_LENGTH = 100
     BOT_TYPES = ["automatico", "manual"]
 
-    def __init__(self, name, search_criteria, profile_id=None):
+    def __init__(self, name, search_criteria, sender_filters=None, profile_id=None):
         """
         Inicializa un perfil de búsqueda con validaciones mejoradas.
 
         Args:
             name (str): Nombre del perfil
             search_criteria (str or list): Criterio(s) de búsqueda. Puede ser string único o lista de hasta 3
+            sender_filters (str or list, optional): Remitentes sugeridos para filtrar resultados
             profile_id (str, optional): ID único del perfil. Si no se proporciona, se genera uno.
         """
         self.profile_id = profile_id if profile_id else str(uuid.uuid4())
@@ -36,6 +36,9 @@ class SearchProfile:
 
         # Procesar y validar criterios
         self.search_criteria = self._process_criteria(search_criteria)
+
+        # Filtros opcionales por remitente
+        self.sender_filters = self._process_sender_filters(sender_filters)
 
         # Campos originales
         self.found_emails = 0  # Cantidad de ejecuciones encontradas
@@ -132,6 +135,36 @@ class SearchProfile:
 
         return processed_criteria
 
+    def _process_sender_filters(self, sender_filters):
+        """Procesa y normaliza los filtros de remitente opcionales."""
+        if not sender_filters:
+            return []
+
+        if isinstance(sender_filters, str):
+            raw_filters = re.split(r'[\n,;]+', sender_filters)
+        elif isinstance(sender_filters, (list, tuple, set)):
+            raw_filters = sender_filters
+        else:
+            return []
+
+        processed_filters = []
+        seen = set()
+
+        for sender in raw_filters:
+            if not isinstance(sender, str):
+                continue
+
+            cleaned = ' '.join(sender.split()).strip()
+            if not cleaned:
+                continue
+
+            sender_key = cleaned.lower()
+            if sender_key not in seen:
+                seen.add(sender_key)
+                processed_filters.append(cleaned)
+
+        return processed_filters
+
     def _clean_criteria(self, criterio):
         """
         Limpia un criterio de búsqueda.
@@ -186,6 +219,7 @@ class SearchProfile:
             "profile_id": self.profile_id,
             "name": self.name,
             "search_criteria": self.search_criteria,
+            "sender_filters": self.sender_filters,
             "found_emails": self.found_emails,
             "last_search": self.last_search.isoformat() if self.last_search else None,
             # Campos de seguimiento óptimo
@@ -223,9 +257,14 @@ class SearchProfile:
             elif not isinstance(search_criteria, list):
                 search_criteria = []
 
+            sender_filters = data.get("sender_filters")
+            if not sender_filters and data.get("sender_filter"):
+                sender_filters = data.get("sender_filter")
+
             profile = cls(
                 name=data.get("name", "Perfil sin nombre"),
                 search_criteria=search_criteria,
+                sender_filters=sender_filters,
                 profile_id=data.get("profile_id")
             )
 
@@ -269,7 +308,8 @@ class SearchProfile:
         except Exception as e:
             raise ValueError(f"Error al crear perfil desde datos: {e}")
 
-    def update(self, name, search_criteria, optimal_executions=None, track_optimal=None, bot_type=None):
+    def update(self, name, search_criteria, optimal_executions=None, track_optimal=None,
+               bot_type=None, sender_filters=None):
         """
         Actualiza los datos del perfil con validaciones mejoradas.
 
@@ -279,12 +319,16 @@ class SearchProfile:
             optimal_executions (int, optional): Cantidad de ejecuciones óptimas
             track_optimal (bool, optional): Habilitar seguimiento óptimo
             bot_type (str, optional): Tipo de bot ("automatico" o "manual")
+            sender_filters (str or list, optional): Remitentes filtrados
         """
         # Actualizar nombre con validación
         self.name = self._validate_name(name)
 
         # Actualizar criterios con validación
         self.search_criteria = self._process_criteria(search_criteria)
+
+        if sender_filters is not None:
+            self.sender_filters = self._process_sender_filters(sender_filters)
 
         # Actualizar campos de seguimiento óptimo si se proporcionan
         if optimal_executions is not None:
@@ -299,6 +343,24 @@ class SearchProfile:
 
         # Actualizar timestamp
         self.updated_at = datetime.now()
+
+    def get_sender_filters(self):
+        """Retorna la lista de filtros de remitente configurados."""
+        return self.sender_filters.copy()
+
+    def has_sender_filters(self):
+        """Indica si el perfil tiene filtros de remitente configurados."""
+        return bool(self.sender_filters)
+
+    def get_sender_display(self):
+        """Retorna representación legible de los remitentes filtrados."""
+        if not self.sender_filters:
+            return "➖ Sin filtro"
+        if len(self.sender_filters) == 1:
+            return f"✉️ {self.sender_filters[0]}"
+        preview = ", ".join(self.sender_filters[:2])
+        suffix = "..." if len(self.sender_filters) > 2 else ""
+        return f"✉️ {len(self.sender_filters)} remitentes: {preview}{suffix}"
 
     def update_search_results(self, found_emails):
         """
@@ -499,14 +561,17 @@ class SearchProfile:
             "bot_type": self.bot_type,
             "age_days": self.get_age_days(),
             "has_optimal_tracking": self.track_optimal,
-            "last_search_days_ago": (datetime.now() - self.last_search).days if self.last_search else None
+            "last_search_days_ago": (datetime.now() - self.last_search).days if self.last_search else None,
+            "sender_filters": self.sender_filters.copy()
         }
 
     def __str__(self):
         """Representación string del perfil."""
-        return f"SearchProfile(name='{self.name}', criteria={len(self.search_criteria)}, type='{self.bot_type}')"
+        return (f"SearchProfile(name='{self.name}', criteria={len(self.search_criteria)}, "
+                f"senders={len(self.sender_filters)}, type='{self.bot_type}')")
 
     def __repr__(self):
         """Representación técnica del perfil."""
         return (f"SearchProfile(id='{self.profile_id[:8]}...', name='{self.name}', "
-                f"criteria={len(self.search_criteria)}, found={self.found_emails})")
+                f"criteria={len(self.search_criteria)}, senders={len(self.sender_filters)}, "
+                f"found={self.found_emails})")
