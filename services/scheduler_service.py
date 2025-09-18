@@ -1,891 +1,590 @@
-# scheduler_service.py
-"""
-Servicio modular para programación de tareas automáticas.
-Implementa servicios especializados para programación diaria, semanal y mensual
-con manejo robusto de hilos independientes y cálculo inteligente de próximas ejecuciones.
+"""Servicios para programación automática de reportes.
+
+Este módulo implementa un programador unificado capaz de manejar
+configuraciones diarias, semanales y mensuales utilizando un único hilo
+de fondo. Mejora la lógica previa al consolidar cálculos de próximas
+ejecuciones, tolerancias de tiempo flexibles y reinicios controlados
+cada vez que la configuración cambia.
 """
 
-import json
-import time
-import threading
-from datetime import datetime, timedelta, date
-import os
-from pathlib import Path
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
 import calendar
+import json
+import threading
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Callable, Dict, Iterable, Optional
 
 
-class BaseSchedulerService(ABC):
-    """Clase base abstracta para servicios de programación."""
+class UnifiedSchedulerService:
+    """Programa tareas automáticas diarias, semanales y mensuales.
 
-    def __init__(self, config_file, log_callback=None):
-        """
-        Inicializa el servicio base de programación.
+    La clase centraliza toda la lógica de programación en un único hilo
+    de fondo. Cada tipo de frecuencia (diaria, semanal y mensual) puede
+    tener su propio callback y configuración independiente, pero el
+    servicio se encarga de coordinar la ejecución evitando duplicados y
+    manejando periodos de tolerancia para no perder ejecuciones si el
+    hilo se despierta unos minutos tarde.
+    """
 
-        Args:
-            config_file (Path): Ruta al archivo de configuración
-            log_callback (callable, optional): Función para registrar logs
-        """
-        self.config_file = config_file
+    DAY_ORDER = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ]
+
+    FREQUENCIES = ("daily", "weekly", "monthly")
+
+    def __init__(
+        self,
+        config_file: Path,
+        callbacks: Optional[Dict[str, Callable[[], bool]]] = None,
+        log_callback: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """Inicializa el servicio unificado de programación."""
+
+        self.config_file = Path(config_file)
+        self.callbacks = callbacks or {}
         self.log_callback = log_callback
 
-        # Control de hilos
-        self.scheduler_thread = None
         self.stop_event = threading.Event()
+        self.thread: Optional[threading.Thread] = None
+        self.lock = threading.Lock()
+
+        self.current_config: Dict[str, Dict] = {}
+        self.next_executions: Dict[str, Optional[datetime]] = {
+            freq: None for freq in self.FREQUENCIES
+        }
+        self.last_execution_times: Dict[str, Optional[datetime]] = {
+            freq: None for freq in self.FREQUENCIES
+        }
+
         self.is_running = False
-        self.last_execution_time = None
 
-        # Lock para operaciones thread-safe
-        self.operation_lock = threading.Lock()
+        # Asegurar que el directorio exista para evitar errores al leer/escribir
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Estado del scheduler
-        self.current_config = None
-        self.next_execution = None
+        self._setup_scheduler()
 
-    def _load_config(self):
-        """
-        Carga configuración de programación de manera segura.
+    # ------------------------------------------------------------------
+    # Configuración y carga de datos
+    # ------------------------------------------------------------------
+    def _setup_scheduler(self) -> None:
+        """Carga configuración inicial y arranca el hilo si corresponde."""
 
-        Returns:
-            dict: Configuración cargada o None si no existe
-        """
-        try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, "r", encoding="utf-8") as file:
-                    config = json.load(file)
+        self.current_config = self._load_config()
 
-                # Validar configuración básica
-                if not isinstance(config, dict):
-                    return None
-
-                return config
-        except Exception as e:
-            self._log(f"❌ Error al cargar configuración de programación: {e}")
-        return None
-
-    def _start_scheduler_thread(self):
-        """Inicia el hilo que ejecuta el programador de manera segura."""
-        # Detener hilo existente si está corriendo
-        if self.is_running:
-            self._stop_scheduler_thread()
-
-        try:
-            # Limpiar evento de parada
-            self.stop_event.clear()
-
-            # Crear e iniciar nuevo hilo
-            self.scheduler_thread = threading.Thread(
-                target=self._run_scheduler,
-                name=f"{self.__class__.__name__}Thread",
-                daemon=True
+        if self._any_frequency_enabled(self.current_config):
+            self._start_thread()
+        else:
+            self._log(
+                "Programación automática desactivada: no hay frecuencias habilitadas"
             )
 
-            self.is_running = True
-            self.scheduler_thread.start()
+    def _load_config(self) -> Dict[str, Dict]:
+        """Carga y normaliza la configuración de programación."""
 
-            self._log(f"📋 Hilo del programador {self.__class__.__name__} iniciado")
+        raw_config = self._read_config_file()
+        normalized = self._normalize_config(raw_config)
+        return normalized
 
-        except Exception as e:
+    def _read_config_file(self) -> Dict:
+        """Lee el archivo de configuración si existe."""
+
+        if not self.config_file.exists():
+            return {}
+
+        try:
+            with open(self.config_file, "r", encoding="utf-8") as file:
+                return json.load(file)
+        except Exception as exc:  # pragma: no cover - errores raros de lectura
+            self._log(f"❌ Error al leer configuración de programación: {exc}")
+            return {}
+
+    def _normalize_config(self, raw_config: Optional[Dict]) -> Dict[str, Dict]:
+        """Normaliza la configuración para asegurar llaves y valores válidos."""
+
+        default_config = {
+            "daily": {
+                "enabled": False,
+                "days": {day: False for day in self.DAY_ORDER},
+                "time": "08:00",
+            },
+            "weekly": {
+                "enabled": False,
+                "day": "friday",
+                "time": "16:00",
+            },
+            "monthly": {
+                "enabled": False,
+                "day": "1",
+                "time": "09:00",
+            },
+        }
+
+        if not raw_config:
+            return default_config
+
+        config = default_config.copy()
+        config["daily"] = {**default_config["daily"], **self._extract_daily(raw_config)}
+        config["weekly"] = {
+            **default_config["weekly"],
+            **self._extract_weekly(raw_config.get("weekly")),
+        }
+        config["monthly"] = {
+            **default_config["monthly"],
+            **self._extract_monthly(raw_config.get("monthly")),
+        }
+        return config
+
+    def _extract_daily(self, raw_config: Dict) -> Dict:
+        """Extrae configuración diaria soportando formatos heredados."""
+
+        daily_config = raw_config.get("daily")
+        if isinstance(daily_config, dict):
+            source = daily_config
+        else:
+            # Formato legacy donde las claves estaban en la raíz del JSON
+            source = raw_config
+
+        enabled = bool(source.get("enabled", False))
+        time_value = self._sanitize_time(source.get("time"), default="08:00")
+        days_raw = source.get("days", {})
+        days = {day: bool(days_raw.get(day, False)) for day in self.DAY_ORDER}
+
+        return {"enabled": enabled, "time": time_value, "days": days}
+
+    def _extract_weekly(self, weekly_config: Optional[Dict]) -> Dict:
+        """Extrae configuración semanal normalizada."""
+
+        if not isinstance(weekly_config, dict):
+            weekly_config = {}
+
+        day = weekly_config.get("day", "friday")
+        if day not in self.DAY_ORDER:
+            day = "friday"
+
+        time_value = self._sanitize_time(weekly_config.get("time"), default="16:00")
+
+        return {
+            "enabled": bool(weekly_config.get("enabled", False)),
+            "day": day,
+            "time": time_value,
+        }
+
+    def _extract_monthly(self, monthly_config: Optional[Dict]) -> Dict:
+        """Extrae configuración mensual normalizada."""
+
+        if not isinstance(monthly_config, dict):
+            monthly_config = {}
+
+        day_value = monthly_config.get("day", "1")
+        if isinstance(day_value, int):
+            day_value = str(day_value)
+
+        if isinstance(day_value, str):
+            day_value = day_value.strip() or "1"
+            if day_value != "last":
+                try:
+                    number = int(day_value)
+                    if number < 1:
+                        number = 1
+                    if number > 31:
+                        number = 31
+                    day_value = str(number)
+                except ValueError:
+                    day_value = "1"
+        else:
+            day_value = "1"
+
+        time_value = self._sanitize_time(monthly_config.get("time"), default="09:00")
+
+        return {
+            "enabled": bool(monthly_config.get("enabled", False)),
+            "day": day_value,
+            "time": time_value,
+        }
+
+    def _sanitize_time(self, value: Optional[str], default: str) -> str:
+        """Normaliza una cadena de hora en formato HH:MM."""
+
+        if not value or not isinstance(value, str):
+            return default
+
+        parts = value.split(":")
+        try:
+            hour = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+        except (TypeError, ValueError):
+            return default
+
+        hour = max(0, min(23, hour))
+        minute = max(0, min(59, minute))
+        return f"{hour:02d}:{minute:02d}"
+
+    # ------------------------------------------------------------------
+    # Gestión del hilo del programador
+    # ------------------------------------------------------------------
+    def _start_thread(self) -> None:
+        """Inicia el hilo del programador unificado."""
+
+        if self.thread and self.thread.is_alive():
+            self.stop()
+
+        self.stop_event.clear()
+
+        self.thread = threading.Thread(
+            target=self._run_scheduler,
+            name="UnifiedSchedulerThread",
+            daemon=True,
+        )
+        self.thread.start()
+        self.is_running = True
+        self._log("📋 Hilo de programación automática iniciado")
+
+    def stop(self) -> None:
+        """Detiene el hilo de programación si está en ejecución."""
+
+        if not self.thread or not self.thread.is_alive():
             self.is_running = False
-            self._log(f"❌ Error al iniciar hilo del programador: {e}")
-
-    def _stop_scheduler_thread(self):
-        """Detiene el hilo del programador de manera segura."""
-        if not self.is_running:
             return
 
-        try:
-            # Señalar parada
-            self.stop_event.set()
+        self._log("🛑 Deteniendo programación automática...")
+        self.stop_event.set()
+        self.thread.join(timeout=5)
+        self.thread = None
+        self.is_running = False
+        self._log("🛑 Programación automática detenida")
 
-            # Esperar a que termine el hilo (con timeout)
-            if self.scheduler_thread and self.scheduler_thread.is_alive():
-                self.scheduler_thread.join(timeout=5.0)
+    def restart(self) -> None:
+        """Recarga configuración y reinicia el hilo si es necesario."""
 
-                # Si no terminó, informar (aunque no forzamos la terminación)
-                if self.scheduler_thread.is_alive():
-                    self._log("⚠️ Hilo del programador no terminó gracefully")
+        self._log("♻️ Reiniciando servicio de programación automática...")
+        self.stop()
+        self.current_config = self._load_config()
+        if self._any_frequency_enabled(self.current_config):
+            self._start_thread()
+        else:
+            self._log(
+                "Programación automática desactivada tras la actualización de configuración"
+            )
 
-            self.is_running = False
-            self.scheduler_thread = None
+    # ------------------------------------------------------------------
+    # Lógica principal del scheduler
+    # ------------------------------------------------------------------
+    def _run_scheduler(self) -> None:
+        """Bucle principal que vigila próximas ejecuciones."""
 
-            self._log(f"🛑 Hilo del programador {self.__class__.__name__} detenido")
+        self._log("▶️ Bucle del programador unificado iniciado")
+        consecutive_errors = 0
 
-        except Exception as e:
-            self._log(f"❌ Error al detener hilo del programador: {e}")
+        while not self.stop_event.is_set():
+            wait_seconds = 60  # Valor por defecto si no hay próximas ejecuciones
 
-    @abstractmethod
-    def _run_scheduler(self):
-        """Función que ejecuta el programador en segundo plano."""
-        pass
+            try:
+                config = self._load_config()
+                self.current_config = config
 
-    @abstractmethod
-    def _calculate_next_execution(self, config, current_time):
-        """Calcula la próxima ejecución programada."""
-        pass
+                now = datetime.now()
+                due_tasks = self._collect_due_tasks(config, now)
 
-    @abstractmethod
-    def _execute_scheduled_task(self):
-        """Ejecuta la tarea programada."""
-        pass
+                for frequency in due_tasks:
+                    self._execute_task(frequency)
 
-    def stop(self):
-        """Detiene el programador de manera segura."""
-        if self.is_running:
-            self._log(f"🛑 Deteniendo servicio de programación {self.__class__.__name__}...")
-            self._stop_scheduler_thread()
+                self.next_executions = self._calculate_next_executions(config, now)
+                wait_seconds = self._compute_sleep_interval(now, self.next_executions)
+                consecutive_errors = 0
 
-    def restart(self):
-        """Reinicia el programador con la configuración actual de manera segura."""
-        self._log(f"📋 Reiniciando servicio de programación {self.__class__.__name__}...")
+            except Exception as exc:  # pragma: no cover - fallos inesperados
+                consecutive_errors += 1
+                wait_seconds = min(300, 30 * consecutive_errors)
+                self._log(f"💥 Error en el bucle del programador: {exc}")
 
-        try:
-            # Detener si está corriendo
-            if self.is_running:
-                self._stop_scheduler_thread()
+            if self.stop_event.wait(wait_seconds):
+                break
 
-            # Pequeña pausa para asegurar limpieza
-            time.sleep(1)
+        self._log("⏹️ Bucle del programador unificado finalizado")
 
-            # Reconfigurar
-            self._setup_scheduler()
+    def _collect_due_tasks(self, config: Dict[str, Dict], now: datetime) -> Iterable[str]:
+        """Determina qué frecuencias deben ejecutarse en este instante."""
 
-        except Exception as e:
-            self._log(f"❌ Error al reiniciar programación {self.__class__.__name__}: {e}")
+        tolerance = timedelta(minutes=5)
+        due_tasks = []
 
-    @abstractmethod
-    def _setup_scheduler(self):
-        """Configura el programador según los ajustes guardados."""
-        pass
+        # Diarios
+        daily = config.get("daily", {})
+        if daily.get("enabled"):
+            day_key = self.DAY_ORDER[now.weekday()]
+            if daily.get("days", {}).get(day_key, False):
+                scheduled = self._build_datetime_from_time(now.date(), daily.get("time", "08:00"))
+                if self._should_run("daily", scheduled, now, tolerance):
+                    due_tasks.append("daily")
 
-    def get_status(self):
-        """
-        Obtiene el estado actual del programador.
+        # Semanales
+        weekly = config.get("weekly", {})
+        if weekly.get("enabled"):
+            if weekly.get("day") == self.DAY_ORDER[now.weekday()]:
+                scheduled = self._build_datetime_from_time(now.date(), weekly.get("time", "16:00"))
+                if self._should_run("weekly", scheduled, now, tolerance, period="week"):
+                    due_tasks.append("weekly")
 
-        Returns:
-            dict: Estado actual del programador
-        """
-        try:
-            status = {
-                "is_running": self.is_running,
-                "is_enabled": False,
-                "next_execution": None,
-                "last_execution": self.last_execution_time,
-                "current_config": self.current_config,
-                "thread_alive": self.scheduler_thread.is_alive() if self.scheduler_thread else False,
-                "scheduler_type": self.__class__.__name__
-            }
+        # Mensuales
+        monthly = config.get("monthly", {})
+        if monthly.get("enabled"):
+            target_date = self._resolve_monthly_date(now.date(), monthly.get("day", "1"))
+            if target_date == now.date():
+                scheduled = self._build_datetime_from_time(target_date, monthly.get("time", "09:00"))
+                if self._should_run("monthly", scheduled, now, tolerance, period="month"):
+                    due_tasks.append("monthly")
 
-            if self.current_config:
-                status["is_enabled"] = self.current_config.get("enabled", False)
+        return due_tasks
 
-            if self.next_execution:
-                status["next_execution"] = self.next_execution.isoformat()
+    def _should_run(
+        self,
+        frequency: str,
+        scheduled: datetime,
+        now: datetime,
+        tolerance: timedelta,
+        period: str = "day",
+    ) -> bool:
+        """Determina si se debe ejecutar una frecuencia determinada."""
 
-            if self.last_execution_time:
-                status["last_execution"] = self.last_execution_time.isoformat()
-
-            return status
-
-        except Exception as e:
-            self._log(f"❌ Error obteniendo estado: {e}")
-            return {"error": str(e)}
-
-    def force_execution(self):
-        """
-        Fuerza la ejecución inmediata de la tarea programada (para testing).
-
-        Returns:
-            bool: True si la ejecución fue exitosa, False en caso contrario
-        """
-        self._log(f"🚀 Forzando ejecución de {self.__class__.__name__}...")
-
-        try:
-            success = self._execute_scheduled_task()
-            if success:
-                self._log(f"✅ Ejecución forzada de {self.__class__.__name__} completada exitosamente")
-            else:
-                self._log(f"❌ Ejecución forzada de {self.__class__.__name__} falló")
-            return success
-
-        except Exception as e:
-            self._log(f"💥 Error en ejecución forzada de {self.__class__.__name__}: {e}")
+        if now < scheduled:
             return False
 
-    def _log(self, message):
-        """Registra mensaje en el log de manera thread-safe."""
+        if now - scheduled > tolerance:
+            # Ya pasó demasiado tiempo, esperar a la próxima ventana
+            return False
+
+        last_run = self.last_execution_times.get(frequency)
+        if not last_run:
+            return True
+
+        if period == "day":
+            return last_run.date() != now.date()
+        if period == "week":
+            return last_run.isocalendar()[:2] != now.isocalendar()[:2]
+        if period == "month":
+            return (last_run.year, last_run.month) != (now.year, now.month)
+
+        return True
+
+    def _calculate_next_executions(
+        self, config: Dict[str, Dict], now: datetime
+    ) -> Dict[str, Optional[datetime]]:
+        """Calcula la siguiente ejecución para cada frecuencia."""
+
+        next_times: Dict[str, Optional[datetime]] = {freq: None for freq in self.FREQUENCIES}
+
+        daily = config.get("daily", {})
+        if daily.get("enabled"):
+            next_times["daily"] = self._next_daily_execution(daily, now)
+
+        weekly = config.get("weekly", {})
+        if weekly.get("enabled"):
+            next_times["weekly"] = self._next_weekly_execution(weekly, now)
+
+        monthly = config.get("monthly", {})
+        if monthly.get("enabled"):
+            next_times["monthly"] = self._next_monthly_execution(monthly, now)
+
+        return next_times
+
+    def _compute_sleep_interval(
+        self, now: datetime, next_executions: Dict[str, Optional[datetime]]
+    ) -> int:
+        """Determina cuántos segundos debe dormir el hilo."""
+
+        upcoming = [dt for dt in next_executions.values() if dt is not None]
+        if not upcoming:
+            return 60
+
+        seconds_until_next = min((dt - now).total_seconds() for dt in upcoming)
+        if seconds_until_next <= 0:
+            return 30
+
+        # Limitar a una hora para seguir revisando periódicamente
+        return int(max(30, min(seconds_until_next, 3600)))
+
+    # ------------------------------------------------------------------
+    # Helpers de cálculo de próximas ejecuciones
+    # ------------------------------------------------------------------
+    def _build_datetime_from_time(self, target_date: date, time_str: str) -> datetime:
+        hour, minute = self._split_time(time_str, default=(0, 0))
+        return datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
+
+    def _split_time(self, value: str, default: tuple[int, int]) -> tuple[int, int]:
+        try:
+            parts = value.split(":")
+            hour = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+        except (ValueError, AttributeError, TypeError):
+            return default
+
+        hour = max(0, min(23, hour))
+        minute = max(0, min(59, minute))
+        return hour, minute
+
+    def _next_daily_execution(self, daily: Dict, now: datetime) -> Optional[datetime]:
+        hour, minute = self._split_time(daily.get("time", "08:00"), default=(8, 0))
+        days_config = daily.get("days", {})
+
+        for offset in range(0, 7):
+            candidate_date = now.date() + timedelta(days=offset)
+            day_key = self.DAY_ORDER[(now.weekday() + offset) % 7]
+            if not days_config.get(day_key, False):
+                continue
+
+            candidate_datetime = datetime.combine(
+                candidate_date, datetime.min.time().replace(hour=hour, minute=minute)
+            )
+
+            if candidate_datetime <= now:
+                continue
+
+            return candidate_datetime
+
+        return None
+
+    def _next_weekly_execution(self, weekly: Dict, now: datetime) -> Optional[datetime]:
+        hour, minute = self._split_time(weekly.get("time", "16:00"), default=(16, 0))
+        target_day = weekly.get("day", "friday")
+        if target_day not in self.DAY_ORDER:
+            target_day = "friday"
+
+        current_weekday = now.weekday()
+        target_weekday = self.DAY_ORDER.index(target_day)
+        days_ahead = (target_weekday - current_weekday) % 7
+        if days_ahead == 0:
+            candidate_date = now.date()
+        else:
+            candidate_date = now.date() + timedelta(days=days_ahead)
+
+        candidate_datetime = datetime.combine(
+            candidate_date, datetime.min.time().replace(hour=hour, minute=minute)
+        )
+
+        if candidate_datetime <= now:
+            candidate_date += timedelta(days=7)
+            candidate_datetime = datetime.combine(
+                candidate_date, datetime.min.time().replace(hour=hour, minute=minute)
+            )
+
+        return candidate_datetime
+
+    def _next_monthly_execution(self, monthly: Dict, now: datetime) -> Optional[datetime]:
+        hour, minute = self._split_time(monthly.get("time", "09:00"), default=(9, 0))
+        day_value = monthly.get("day", "1")
+
+        candidate_date = self._resolve_monthly_date(now.date(), day_value)
+        candidate_datetime = datetime.combine(
+            candidate_date, datetime.min.time().replace(hour=hour, minute=minute)
+        )
+
+        if candidate_datetime <= now:
+            # Calcular para el mes siguiente
+            if candidate_date.month == 12:
+                next_month = 1
+                next_year = candidate_date.year + 1
+            else:
+                next_month = candidate_date.month + 1
+                next_year = candidate_date.year
+
+            next_date = date(next_year, next_month, 1)
+            candidate_date = self._resolve_monthly_date(next_date, day_value)
+            candidate_datetime = datetime.combine(
+                candidate_date, datetime.min.time().replace(hour=hour, minute=minute)
+            )
+
+        return candidate_datetime
+
+    def _resolve_monthly_date(self, reference_date: date, day_value: str) -> date:
+        """Determina la fecha correcta para un reporte mensual."""
+
+        if day_value == "last":
+            last_day = calendar.monthrange(reference_date.year, reference_date.month)[1]
+            return date(reference_date.year, reference_date.month, last_day)
+
+        try:
+            day_num = int(day_value)
+        except (ValueError, TypeError):
+            day_num = 1
+
+        last_day = calendar.monthrange(reference_date.year, reference_date.month)[1]
+        day_num = max(1, min(last_day, day_num))
+        return date(reference_date.year, reference_date.month, day_num)
+
+    # ------------------------------------------------------------------
+    # Ejecución de tareas y utilidades públicas
+    # ------------------------------------------------------------------
+    def _execute_task(self, frequency: str) -> bool:
+        """Ejecuta el callback asociado a una frecuencia."""
+
+        callback = self.callbacks.get(frequency)
+        if not callback:
+            self._log(f"⚠️ No se encontró callback para la frecuencia '{frequency}'")
+            return False
+
+        with self.lock:
+            self._log(f"⏰ Ejecutando tarea programada: {frequency}")
+            try:
+                success = bool(callback())
+            except Exception as exc:  # pragma: no cover - errores en callback
+                self._log(f"💥 Error ejecutando tarea {frequency}: {exc}")
+                success = False
+
+            if success:
+                self.last_execution_times[frequency] = datetime.now()
+                self._log(f"✅ Tarea programada '{frequency}' completada")
+            else:
+                self._log(f"❌ Tarea programada '{frequency}' finalizó con errores")
+
+            return success
+
+    def force_execution(self, frequency: Optional[str] = None) -> bool:
+        """Fuerza la ejecución inmediata de una o varias frecuencias."""
+
+        if frequency:
+            return self._execute_task(frequency)
+
+        results = [self._execute_task(freq) for freq in self.FREQUENCIES]
+        return any(results)
+
+    def get_status(self) -> Dict[str, Dict]:
+        """Retorna información del estado actual del scheduler."""
+
+        status: Dict[str, Dict] = {
+            "is_running": self.is_running,
+            "thread_alive": bool(self.thread and self.thread.is_alive()),
+            "frequencies": {},
+        }
+
+        for frequency in self.FREQUENCIES:
+            frequency_status = {
+                "enabled": self.current_config.get(frequency, {}).get("enabled", False),
+                "next_execution": self._format_datetime(self.next_executions.get(frequency)),
+                "last_execution": self._format_datetime(
+                    self.last_execution_times.get(frequency)
+                ),
+            }
+            status["frequencies"][frequency] = frequency_status
+
+        return status
+
+    def _any_frequency_enabled(self, config: Dict[str, Dict]) -> bool:
+        return any(config.get(freq, {}).get("enabled", False) for freq in self.FREQUENCIES)
+
+    def _format_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        return value.isoformat() if value else None
+
+    def _log(self, message: str) -> None:
         if self.log_callback:
             try:
                 self.log_callback(message)
             except Exception:
-                # Si falla el log, no hacer nada para evitar cascada de errores
                 pass
-
-
-class DailySchedulerService(BaseSchedulerService):
-    """Servicio específico para programación de tareas diarias."""
-
-    def __init__(self, config_file, report_generator=None, log_callback=None):
-        """
-        Inicializa el servicio de programación diaria.
-
-        Args:
-            config_file (Path): Ruta al archivo de configuración
-            report_generator (callable, optional): Función para generar reportes diarios
-            log_callback (callable, optional): Función para registrar logs
-        """
-        super().__init__(config_file, log_callback)
-        self.report_generator = report_generator
-
-        # Iniciar servicio
-        self._setup_scheduler()
-
-    def _setup_scheduler(self):
-        """Configura el programador diario según los ajustes guardados."""
-        try:
-            config = self._load_config()
-            self.current_config = config
-
-            if not config:
-                self._log("Programador de reportes diarios no activado")
-                return
-
-            daily_enabled = config.get("enabled", False)
-
-            if not daily_enabled:
-                self._log("Programación de reportes diarios desactivada")
-                return
-
-            # Iniciar hilo de programación
-            self._start_scheduler_thread()
-            self._log("✅ Servicio de programación diaria iniciado correctamente")
-
-        except Exception as e:
-            self._log(f"❌ Error al configurar programador diario: {e}")
-
-    def _run_scheduler(self):
-        """Función optimizada que ejecuta el programador diario en segundo plano."""
-        self._log("📋 Bucle del programador diario iniciado")
-
-        # Valores iniciales para evitar ejecución inmediata
-        last_execution_date = datetime.now() - timedelta(days=1)
-        consecutive_errors = 0
-        max_consecutive_errors = 5
-
-        while not self.stop_event.is_set():
-            try:
-                # Cargar configuración actual (puede haber cambiado)
-                config = self._load_config()
-                self.current_config = config
-
-                if not config:
-                    # Si está deshabilitado, esperar más tiempo
-                    if self.stop_event.wait(60):  # Espera 60 segundos o hasta que se señale parada
-                        break
-                    continue
-
-                # Verificar si está habilitado
-                daily_enabled = config.get("enabled", False)
-                if not daily_enabled:
-                    if self.stop_event.wait(60):
-                        break
-                    continue
-
-                now = datetime.now()
-
-                # Comprobar reportes diarios
-                self._check_daily_execution(now, config, last_execution_date)
-
-                # Actualizar last_execution_date si se ha ejecutado
-                if self.last_execution_time and self.last_execution_time.date() == now.date():
-                    last_execution_date = self.last_execution_time
-
-                # Esperar antes de la próxima verificación (30 segundos)
-                if self.stop_event.wait(30):
-                    break
-
-            except Exception as e:
-                consecutive_errors += 1
-                self._log(f"💥 Error en el bucle del programador diario: {e}")
-
-                # Pausa más larga en caso de error
-                sleep_time = min(300, 60 * consecutive_errors)  # Máximo 5 minutos
-                if self.stop_event.wait(sleep_time):
-                    break
-
-        self._log("👋 Bucle del programador diario terminado")
-
-    def _check_daily_execution(self, now, config, last_execution_date):
-        """
-        Comprueba si es momento de ejecutar reportes diarios.
-
-        Args:
-            now (datetime): Tiempo actual
-            config (dict): Configuración actual
-            last_execution_date (datetime): Fecha de última ejecución
-        """
-        current_time = now.strftime("%H:%M")
-        scheduled_time = config.get("time", "08:00")
-
-        # Mapeo de días de la semana (0 = lunes en Python)
-        day_mapping = {
-            0: "monday", 1: "tuesday", 2: "wednesday", 3: "thursday",
-            4: "friday", 5: "saturday", 6: "sunday"
-        }
-
-        current_day = day_mapping.get(now.weekday())
-        days_config = config.get("days", {})
-
-        # Calcular próxima ejecución para logs
-        self._calculate_next_execution(config, now)
-
-        # Verificar si hoy es un día programado y si es la hora configurada
-        should_execute = (
-                days_config.get(current_day, False) and
-                current_time == scheduled_time and
-                (not self.last_execution_time or self.last_execution_time.date() != now.date())
-        )
-
-        if should_execute:
-            self._log(f"⏰ Ejecutando reporte diario programado: {current_day} {scheduled_time}")
-
-            # Ejecutar reporte de manera thread-safe
-            success = self._execute_scheduled_task()
-
-            if success:
-                self.last_execution_time = now
-                self._log("✅ Reporte diario programado ejecutado exitosamente")
-            else:
-                self._log(f"❌ Error en reporte diario programado")
-
-    def _calculate_next_execution(self, config, current_time):
-        """
-        Calcula y guarda la próxima ejecución programada diaria.
-
-        Args:
-            config (dict): Configuración actual
-            current_time (datetime): Tiempo actual
-        """
-        try:
-            days_config = config.get("days", {})
-            scheduled_time = config.get("time", "08:00")
-
-            # Encontrar el próximo día programado
-            current_weekday = current_time.weekday()
-
-            for i in range(7):  # Buscar en los próximos 7 días
-                check_day = (current_weekday + i) % 7
-                day_name = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"][check_day]
-
-                if days_config.get(day_name, False):
-                    # Calcular fecha y hora
-                    days_ahead = i
-                    hour, minute = map(int, scheduled_time.split(":"))
-
-                    # Si es hoy pero ya pasó la hora, buscar el siguiente día programado
-                    if i == 0:
-                        scheduled_datetime = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                        if scheduled_datetime <= current_time:
-                            continue  # Ya pasó la hora de hoy, buscar siguiente día
-                    else:
-                        next_date = current_time.date() + timedelta(days=days_ahead)
-                        scheduled_datetime = datetime.combine(next_date,
-                                                              datetime.min.time().replace(hour=hour, minute=minute))
-
-                    self.next_execution = scheduled_datetime
-                    break
-            else:
-                self.next_execution = None
-
-        except Exception as e:
-            self._log(f"⚠️ Error calculando próxima ejecución diaria: {e}")
-            self.next_execution = None
-
-    def _execute_scheduled_task(self):
-        """
-        Ejecuta el reporte diario programado de manera thread-safe.
-
-        Returns:
-            bool: True si la ejecución fue exitosa, False en caso contrario
-        """
-        with self.operation_lock:
-            try:
-                if self.report_generator:
-                    # Actualizar timestamp de última ejecución
-                    self.last_execution_time = datetime.now()
-
-                    # Ejecutar generador de reportes diarios
-                    result = self.report_generator()
-
-                    return bool(result)
-                else:
-                    self._log("⚠️ No se encontró función generadora de reportes diarios")
-                    return False
-
-            except Exception as e:
-                self._log(f"💥 Error al ejecutar reporte diario programado: {e}")
-                return False
-
-
-class WeeklySchedulerService(BaseSchedulerService):
-    """Servicio específico para programación de tareas semanales."""
-
-    def __init__(self, config_file, weekly_report_generator=None, log_callback=None):
-        """
-        Inicializa el servicio de programación semanal.
-
-        Args:
-            config_file (Path): Ruta al archivo de configuración
-            weekly_report_generator (callable, optional): Función para generar reportes semanales
-            log_callback (callable, optional): Función para registrar logs
-        """
-        super().__init__(config_file, log_callback)
-        self.weekly_report_generator = weekly_report_generator
-
-        # Iniciar servicio
-        self._setup_scheduler()
-
-    def _setup_scheduler(self):
-        """Configura el programador semanal según los ajustes guardados."""
-        try:
-            config = self._load_config()
-            self.current_config = config
-
-            if not config:
-                self._log("Programador de reportes semanales no activado")
-                return
-
-            # Verificar configuración específica semanal
-            weekly_config = config.get("weekly", {})
-            weekly_enabled = weekly_config.get("enabled", False)
-
-            if not weekly_enabled:
-                self._log("Programación de reportes semanales desactivada")
-                return
-
-            # Iniciar hilo de programación
-            self._start_scheduler_thread()
-            self._log("✅ Servicio de programación semanal iniciado correctamente")
-
-        except Exception as e:
-            self._log(f"❌ Error al configurar programador semanal: {e}")
-
-    def _run_scheduler(self):
-        """Función optimizada que ejecuta el programador semanal en segundo plano."""
-        self._log("📋 Bucle del programador semanal iniciado")
-
-        # Valores iniciales para evitar ejecución inmediata
-        consecutive_errors = 0
-        max_consecutive_errors = 5
-
-        while not self.stop_event.is_set():
-            try:
-                # Cargar configuración actual (puede haber cambiado)
-                config = self._load_config()
-                self.current_config = config
-
-                if not config:
-                    # Si está deshabilitado, esperar más tiempo
-                    if self.stop_event.wait(60):  # Espera 60 segundos o hasta que se señale parada
-                        break
-                    continue
-
-                # Verificar configuración específica semanal
-                weekly_config = config.get("weekly", {})
-                weekly_enabled = weekly_config.get("enabled", False)
-
-                if not weekly_enabled:
-                    if self.stop_event.wait(60):
-                        break
-                    continue
-
-                now = datetime.now()
-
-                # Comprobar reportes semanales
-                self._check_weekly_execution(now, weekly_config)
-
-                # Esperar antes de la próxima verificación (60 segundos)
-                if self.stop_event.wait(60):
-                    break
-
-            except Exception as e:
-                consecutive_errors += 1
-                self._log(f"💥 Error en el bucle del programador semanal: {e}")
-
-                # Pausa más larga en caso de error
-                sleep_time = min(300, 60 * consecutive_errors)  # Máximo 5 minutos
-                if self.stop_event.wait(sleep_time):
-                    break
-
-        self._log("👋 Bucle del programador semanal terminado")
-
-    def _check_weekly_execution(self, now, weekly_config):
-        """
-        Comprueba si es momento de ejecutar reportes semanales.
-
-        Args:
-            now (datetime): Tiempo actual
-            weekly_config (dict): Configuración semanal
-        """
-        current_time = now.strftime("%H:%M")
-        scheduled_time = weekly_config.get("time", "16:00")
-        scheduled_day = weekly_config.get("day", "friday")
-
-        # Mapeo de días de la semana (0 = lunes en Python)
-        day_mapping = {
-            0: "monday", 1: "tuesday", 2: "wednesday", 3: "thursday",
-            4: "friday", 5: "saturday", 6: "sunday"
-        }
-
-        current_day = day_mapping.get(now.weekday())
-
-        # Calcular próxima ejecución semanal para logs
-        self._calculate_next_execution(weekly_config, now)
-
-        # Verificar si hoy es el día programado y si es la hora configurada
-        # Además, verificar que no se haya ejecutado hoy todavía
-        should_execute = (
-                current_day == scheduled_day and
-                current_time == scheduled_time and
-                (not self.last_execution_time or self.last_execution_time.date() != now.date())
-        )
-
-        if should_execute:
-            self._log(f"⏰ Ejecutando reporte semanal programado: {scheduled_day} {scheduled_time}")
-
-            # Ejecutar reporte semanal de manera thread-safe
-            success = self._execute_scheduled_task()
-
-            if success:
-                self.last_execution_time = now
-                self._log("✅ Reporte semanal programado ejecutado exitosamente")
-            else:
-                self._log(f"❌ Error en reporte semanal programado")
-
-    def _calculate_next_execution(self, weekly_config, current_time):
-        """
-        Calcula y guarda la próxima ejecución programada semanal.
-
-        Args:
-            weekly_config (dict): Configuración semanal
-            current_time (datetime): Tiempo actual
-        """
-        try:
-            if not weekly_config.get("enabled", False):
-                self.next_execution = None
-                return
-
-            scheduled_day = weekly_config.get("day", "friday")
-            scheduled_time = weekly_config.get("time", "16:00")
-
-            # Mapear el día a número de día de la semana (0=lunes, 6=domingo)
-            day_mapping = {
-                "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-                "friday": 4, "saturday": 5, "sunday": 6
-            }
-
-            target_weekday = day_mapping.get(scheduled_day, 4)  # Default a viernes si no es válido
-            current_weekday = current_time.weekday()
-
-            # Calcular días hasta el próximo día programado
-            days_ahead = (target_weekday - current_weekday) % 7
-
-            # Si es el mismo día pero ya pasó la hora, sumar una semana
-            if days_ahead == 0:
-                hour, minute = map(int, scheduled_time.split(":"))
-                scheduled_datetime = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if scheduled_datetime <= current_time:
-                    days_ahead = 7  # Esperar a la próxima semana
-
-            # Calcular la fecha y hora exacta
-            next_date = current_time.date() + timedelta(days=days_ahead)
-            hour, minute = map(int, scheduled_time.split(":"))
-
-            self.next_execution = datetime.combine(
-                next_date,
-                datetime.min.time().replace(hour=hour, minute=minute)
-            )
-
-        except Exception as e:
-            self._log(f"⚠️ Error calculando próxima ejecución semanal: {e}")
-            self.next_execution = None
-
-    def _execute_scheduled_task(self):
-        """
-        Ejecuta el reporte semanal programado de manera thread-safe.
-
-        Returns:
-            bool: True si la ejecución fue exitosa, False en caso contrario
-        """
-        with self.operation_lock:
-            try:
-                if self.weekly_report_generator:
-                    # Actualizar timestamp de última ejecución
-                    self.last_execution_time = datetime.now()
-
-                    # Ejecutar generador de reportes semanales
-                    result = self.weekly_report_generator()
-
-                    return bool(result)
-                else:
-                    self._log("⚠️ No se encontró función generadora de reportes semanales")
-                    return False
-
-            except Exception as e:
-                self._log(f"💥 Error al ejecutar reporte semanal programado: {e}")
-                return False
-
-
-class MonthlySchedulerService(BaseSchedulerService):
-    """Servicio específico para programación de tareas mensuales."""
-
-    def __init__(self, config_file, monthly_report_generator=None, log_callback=None):
-        """
-        Inicializa el servicio de programación mensual.
-
-        Args:
-            config_file (Path): Ruta al archivo de configuración
-            monthly_report_generator (callable, optional): Función para generar reportes mensuales
-            log_callback (callable, optional): Función para registrar logs
-        """
-        super().__init__(config_file, log_callback)
-        self.monthly_report_generator = monthly_report_generator
-
-        # Iniciar servicio
-        self._setup_scheduler()
-
-    def _setup_scheduler(self):
-        """Configura el programador mensual según los ajustes guardados."""
-        try:
-            config = self._load_config()
-            self.current_config = config
-
-            if not config:
-                self._log("Programador de reportes mensuales no activado")
-                return
-
-            # Verificar configuración específica mensual
-            monthly_config = config.get("monthly", {})
-            monthly_enabled = monthly_config.get("enabled", False)
-
-            if not monthly_enabled:
-                self._log("Programación de reportes mensuales desactivada")
-                return
-
-            # Iniciar hilo de programación
-            self._start_scheduler_thread()
-            self._log("✅ Servicio de programación mensual iniciado correctamente")
-
-        except Exception as e:
-            self._log(f"❌ Error al configurar programador mensual: {e}")
-
-    def _run_scheduler(self):
-        """Función optimizada que ejecuta el programador mensual en segundo plano."""
-        self._log("📋 Bucle del programador mensual iniciado")
-
-        # Valores iniciales para evitar ejecución inmediata
-        consecutive_errors = 0
-        max_consecutive_errors = 5
-
-        while not self.stop_event.is_set():
-            try:
-                # Cargar configuración actual (puede haber cambiado)
-                config = self._load_config()
-                self.current_config = config
-
-                if not config:
-                    # Si está deshabilitado, esperar más tiempo
-                    if self.stop_event.wait(300):  # Espera 5 minutos o hasta que se señale parada
-                        break
-                    continue
-
-                # Verificar configuración específica mensual
-                monthly_config = config.get("monthly", {})
-                monthly_enabled = monthly_config.get("enabled", False)
-
-                if not monthly_enabled:
-                    if self.stop_event.wait(300):
-                        break
-                    continue
-
-                now = datetime.now()
-
-                # Comprobar reportes mensuales
-                self._check_monthly_execution(now, monthly_config)
-
-                # Para chequeos mensuales, una verificación cada hora es suficiente
-                if self.stop_event.wait(3600):  # 1 hora
-                    break
-
-            except Exception as e:
-                consecutive_errors += 1
-                self._log(f"💥 Error en el bucle del programador mensual: {e}")
-
-                # Pausa más larga en caso de error
-                sleep_time = min(3600, 300 * consecutive_errors)  # Máximo 1 hora
-                if self.stop_event.wait(sleep_time):
-                    break
-
-        self._log("👋 Bucle del programador mensual terminado")
-
-    def _check_monthly_execution(self, now, monthly_config):
-        """
-        Comprueba si es momento de ejecutar reportes mensuales.
-
-        Args:
-            now (datetime): Tiempo actual
-            monthly_config (dict): Configuración mensual
-        """
-        current_time = now.strftime("%H:%M")
-        scheduled_time = monthly_config.get("time", "09:00")
-        scheduled_day = monthly_config.get("day", "1")  # Día del mes (1-31 o "last")
-
-        # Determinar si hoy es el día programado
-        is_scheduled_day = False
-
-        if scheduled_day == "last":
-            # Último día del mes
-            last_day = calendar.monthrange(now.year, now.month)[1]
-            is_scheduled_day = now.day == last_day
-        else:
-            # Día específico del mes
-            try:
-                day_num = int(scheduled_day)
-                # Si el día es mayor que el último día del mes, usar el último día
-                last_day = calendar.monthrange(now.year, now.month)[1]
-                target_day = min(day_num, last_day)
-                is_scheduled_day = now.day == target_day
-            except (ValueError, TypeError):
-                self._log(f"⚠️ Configuración inválida para día del mes: {scheduled_day}")
-                is_scheduled_day = False
-
-        # Calcular próxima ejecución mensual para logs
-        self._calculate_next_execution(monthly_config, now)
-
-        # Verificar si hoy es el día programado y si es la hora configurada
-        # Además, verificar que no se haya ejecutado hoy todavía
-        should_execute = (
-                is_scheduled_day and
-                current_time == scheduled_time and
-                (not self.last_execution_time or self.last_execution_time.date() != now.date())
-        )
-
-        if should_execute:
-            day_description = "último día" if scheduled_day == "last" else f"día {scheduled_day}"
-            self._log(f"⏰ Ejecutando reporte mensual programado: {day_description} {scheduled_time}")
-
-            # Ejecutar reporte mensual de manera thread-safe
-            success = self._execute_scheduled_task()
-
-            if success:
-                self.last_execution_time = now
-                self._log("✅ Reporte mensual programado ejecutado exitosamente")
-            else:
-                self._log(f"❌ Error en reporte mensual programado")
-
-    def _calculate_next_execution(self, monthly_config, current_time):
-        """
-        Calcula y guarda la próxima ejecución programada mensual.
-
-        Args:
-            monthly_config (dict): Configuración mensual
-            current_time (datetime): Tiempo actual
-        """
-        try:
-            if not monthly_config.get("enabled", False):
-                self.next_execution = None
-                return
-
-            scheduled_day = monthly_config.get("day", "1")
-            scheduled_time = monthly_config.get("time", "09:00")
-            hour, minute = map(int, scheduled_time.split(":"))
-
-            # Determinar fecha objetivo
-            target_date = None
-            current_date = current_time.date()
-
-            # Primero comprobar si la ejecución sería hoy
-            if scheduled_day == "last":
-                # Último día del mes
-                last_day = calendar.monthrange(current_date.year, current_date.month)[1]
-                if current_date.day == last_day:
-                    # Es hoy, comprobar la hora
-                    scheduled_datetime = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                    if scheduled_datetime > current_time:
-                        target_date = current_date
-            else:
-                # Día específico
-                try:
-                    day_num = int(scheduled_day)
-                    last_day = calendar.monthrange(current_date.year, current_date.month)[1]
-                    # Si el día especificado es mayor que el último día, usar el último día
-                    target_day = min(day_num, last_day)
-
-                    if current_date.day == target_day:
-                        # Es hoy, comprobar la hora
-                        scheduled_datetime = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                        if scheduled_datetime > current_time:
-                            target_date = current_date
-                except (ValueError, TypeError):
-                    self._log(f"⚠️ Configuración inválida para día del mes: {scheduled_day}")
-
-            # Si no es hoy o ya pasó la hora, calcular para el próximo mes
-            if target_date is None:
-                # Determinar el mes siguiente
-                if current_date.month == 12:
-                    next_month = 1
-                    next_year = current_date.year + 1
-                else:
-                    next_month = current_date.month + 1
-                    next_year = current_date.year
-
-                if scheduled_day == "last":
-                    # Último día del próximo mes
-                    last_day = calendar.monthrange(next_year, next_month)[1]
-                    target_date = date(next_year, next_month, last_day)
-                else:
-                    # Día específico del próximo mes
-                    try:
-                        day_num = int(scheduled_day)
-                        last_day = calendar.monthrange(next_year, next_month)[1]
-                        # Si el día especificado es mayor que el último día, usar el último día
-                        target_day = min(day_num, last_day)
-                        target_date = date(next_year, next_month, target_day)
-                    except (ValueError, TypeError):
-                        # Fallback a primer día si hay error
-                        target_date = date(next_year, next_month, 1)
-
-            # Combinar fecha y hora
-            self.next_execution = datetime.combine(
-                target_date,
-                datetime.min.time().replace(hour=hour, minute=minute)
-            )
-
-        except Exception as e:
-            self._log(f"⚠️ Error calculando próxima ejecución mensual: {e}")
-            self.next_execution = None
-
-    def _execute_scheduled_task(self):
-        """
-        Ejecuta el reporte mensual programado de manera thread-safe.
-
-        Returns:
-            bool: True si la ejecución fue exitosa, False en caso contrario
-        """
-        with self.operation_lock:
-            try:
-                if self.monthly_report_generator:
-                    # Actualizar timestamp de última ejecución
-                    self.last_execution_time = datetime.now()
-
-                    # Ejecutar generador de reportes mensuales
-                    result = self.monthly_report_generator()
-
-                    return bool(result)
-                else:
-                    self._log("⚠️ No se encontró función generadora de reportes mensuales")
-                    return False
-
-            except Exception as e:
-                self._log(f"💥 Error al ejecutar reporte mensual programado: {e}")
-                return False
