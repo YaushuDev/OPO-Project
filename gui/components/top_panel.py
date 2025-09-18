@@ -370,8 +370,11 @@ class TopPanel:
             criterios_count = len(profile.search_criteria)
             bot_type_text = "Automático" if profile.is_bot_automatic() else "Manual"
             optimal_text = f" (óptimo: {profile.optimal_executions})" if profile.track_optimal else ""
+            sender_text = ""
+            if profile.has_sender_filters():
+                sender_text = f", remitentes: {len(profile.sender_filters)}"
             self.bottom_right_panel.add_log_entry(
-                f"Editando perfil: {profile.name} [{bot_type_text}] ({criterios_count} criterios{optimal_text})"
+                f"Editando perfil: {profile.name} [{bot_type_text}] ({criterios_count} criterios{optimal_text}{sender_text})"
             )
 
         ProfileModal(
@@ -391,11 +394,15 @@ class TopPanel:
         if profile.track_optimal:
             optimal_text = f"\nSeguimiento óptimo: {profile.optimal_executions} ejecuciones"
 
+        sender_text = ""
+        if profile.has_sender_filters():
+            sender_text = f"\nRemitentes filtrados: {', '.join(profile.sender_filters)}"
+
         confirm = messagebox.askyesno(
             "Confirmar eliminación",
             f"¿Estás seguro de eliminar el perfil '{profile.name}'?\n"
             f"Tipo de bot: {bot_type_text}\n"
-            f"Se perderán {criterios_count} {criterios_text} de búsqueda.{optimal_text}",
+            f"Se perderán {criterios_count} {criterios_text} de búsqueda.{optimal_text}{sender_text}",
             icon=messagebox.WARNING
         )
 

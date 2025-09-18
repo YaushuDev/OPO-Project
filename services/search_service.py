@@ -13,11 +13,13 @@ import json
 import os
 import hashlib
 import re
+import unicodedata
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from collections import defaultdict
+from difflib import SequenceMatcher
 
 
 class SearchService:
@@ -51,6 +53,8 @@ class SearchService:
 
         # Configuraciones de búsqueda
         self.search_fields = ['subject', 'from', 'body']  # Campos donde buscar
+        self.fuzzy_fields = {'subject', 'from'}  # Campos que permiten coincidencia difusa
+        self.fuzzy_match_threshold = 0.75  # Umbral para coincidencias difusas
         self.max_search_days = 3  # Buscar en los últimos N días para mayor robustez
 
     def search_emails(self, profile):
@@ -82,6 +86,17 @@ class SearchService:
         for i, criterio in enumerate(criterios, 1):
             self._log(f"  ✓ Criterio {i}: '{criterio}'")
 
+        sender_filters = []
+        if hasattr(profile, 'sender_filters') and profile.sender_filters:
+            sender_filters = [s for s in profile.sender_filters if isinstance(s, str) and s.strip()]
+
+        if sender_filters:
+            self._log(f"📮 Remitentes configurados: {len(sender_filters)}")
+            for sender in sender_filters:
+                self._log(f"  ↪ Remitente: {sender}")
+        else:
+            self._log("📮 Sin filtros de remitente específicos")
+
         start_time = datetime.now()
 
         try:
@@ -92,7 +107,7 @@ class SearchService:
                 return 0
 
             # Generar clave de caché para toda la búsqueda
-            cache_key = self._generate_cache_key(criterios)
+            cache_key = self._generate_cache_key(criterios, sender_filters)
 
             # Verificar caché
             if cache_key in self.search_cache:
@@ -106,7 +121,7 @@ class SearchService:
                     del self.search_cache[cache_key]
 
             # Realizar búsqueda IMAP mejorada
-            unique_emails = self._perform_enhanced_imap_search(smtp_config, criterios)
+            unique_emails = self._perform_enhanced_imap_search(smtp_config, criterios, sender_filters)
 
             # Guardar en caché
             cache_data = {
@@ -166,19 +181,21 @@ class SearchService:
 
         return unique_criteria
 
-    def _generate_cache_key(self, criterios):
+    def _generate_cache_key(self, criterios, sender_filters=None):
         """
         Genera una clave única para el caché basada en los criterios y la fecha.
 
         Args:
             criterios (list): Lista de criterios de búsqueda
+            sender_filters (list, optional): Lista de remitentes filtrados
 
         Returns:
             str: Clave de caché única
         """
         today_str = date.today().isoformat()
         criteria_str = "|".join(sorted([c.lower() for c in criterios]))
-        combined = f"{today_str}:{criteria_str}"
+        sender_str = "|".join(sorted([s.lower() for s in sender_filters])) if sender_filters else ""
+        combined = f"{today_str}:{criteria_str}:{sender_str}"
         return hashlib.md5(combined.encode()).hexdigest()
 
     def _is_cache_valid(self, cache_data):
@@ -213,13 +230,14 @@ class SearchService:
         emails_str = "|".join(sorted(emails))
         return hashlib.md5(emails_str.encode()).hexdigest()
 
-    def _perform_enhanced_imap_search(self, smtp_config, criterios):
+    def _perform_enhanced_imap_search(self, smtp_config, criterios, sender_filters):
         """
         Realiza búsqueda IMAP mejorada con múltiples criterios y deduplicación.
 
         Args:
             smtp_config (dict): Configuración SMTP/IMAP
             criterios (list): Lista de criterios de búsqueda
+            sender_filters (list): Lista de remitentes filtrados
 
         Returns:
             set: Set de IDs únicos de correos que coinciden
@@ -263,7 +281,7 @@ class SearchService:
             self._log(f"📧 Analizando {total_candidates} correos candidatos...")
 
             # Analizar cada mensaje con todos los criterios
-            unique_emails = self._analyze_messages(mail, message_ids, criterios)
+            unique_emails = self._analyze_messages(mail, message_ids, criterios, sender_filters)
 
             self._log(f"✅ Análisis completado: {len(unique_emails)} correos únicos coinciden")
 
@@ -300,7 +318,43 @@ class SearchService:
         # Criterio más amplio pero filtraremos por fecha exacta después
         return f'(SINCE "{yesterday_str}" BEFORE "{tomorrow_str}")'
 
-    def _analyze_messages(self, mail, message_ids, criterios):
+    def _prepare_search_patterns(self, criterios):
+        """Crea estructuras de patrones para coincidencias exactas y flexibles."""
+        patterns = []
+
+        for criterio in criterios:
+            regex = re.compile(re.escape(criterio), re.IGNORECASE | re.UNICODE)
+            normalized = self._normalize_text(criterio)
+            tokens = self._tokenize(normalized)
+
+            patterns.append({
+                'original': criterio,
+                'regex': regex,
+                'normalized': normalized,
+                'tokens': tokens
+            })
+
+        return patterns
+
+    def _normalize_text(self, text):
+        """Normaliza texto eliminando acentos, signos y múltiples espacios."""
+        if not text:
+            return ""
+
+        text = text.lower()
+        text = unicodedata.normalize('NFD', text)
+        text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Mn')
+        text = re.sub(r'[^a-z0-9\s]', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
+    def _tokenize(self, text):
+        """Convierte el texto normalizado en un conjunto de tokens únicos."""
+        if not text:
+            return set()
+        return set(text.split())
+
+    def _analyze_messages(self, mail, message_ids, criterios, sender_filters):
         """
         Analiza mensajes para encontrar coincidencias con los criterios.
 
@@ -308,6 +362,7 @@ class SearchService:
             mail: Conexión IMAP
             message_ids: Lista de IDs de mensajes
             criterios: Lista de criterios de búsqueda
+            sender_filters: Lista de remitentes filtrados
 
         Returns:
             set: Set de IDs únicos de correos que coinciden
@@ -316,14 +371,12 @@ class SearchService:
         today = date.today()
 
         # Crear patrones de búsqueda optimizados
-        search_patterns = []
-        for criterio in criterios:
-            # Escapar caracteres especiales y crear patrón case-insensitive
-            escaped = re.escape(criterio.lower())
-            pattern = re.compile(escaped, re.IGNORECASE | re.UNICODE)
-            search_patterns.append((criterio, pattern))
-
+        search_patterns = self._prepare_search_patterns(criterios)
         self._log(f"🎯 Patrones de búsqueda creados: {len(search_patterns)}")
+
+        sender_patterns = self._prepare_search_patterns(sender_filters) if sender_filters else []
+        if sender_patterns:
+            self._log(f"✉️ Patrones de remitente activos: {len(sender_patterns)}")
 
         processed = 0
         matches_by_criteria = defaultdict(int)
@@ -347,24 +400,40 @@ class SearchService:
                 # Extraer contenido para búsqueda
                 search_content = self._extract_search_content(email_message)
 
-                # Verificar coincidencias con cualquier criterio y combinación de título
+                # Verificar coincidencias con cualquier criterio, remitente y combinación de título
                 matched_criteria = set()
+                sender_match_label = None
+
+                if sender_patterns:
+                    sender_match, sender_match_label = self._sender_matches(search_content, sender_patterns)
+                    if not sender_match:
+                        continue
+
                 subject_match = self._subject_matches_all_keywords(
-                    search_content.get('subject', ''),
-                    criterios
+                    search_content,
+                    search_patterns
                 )
 
-                for criterio, pattern in search_patterns:
+                for pattern_info in search_patterns:
+                    criterio = pattern_info['original']
                     if criterio in matched_criteria:
                         continue
-                    if self._matches_criteria(search_content, pattern):
+                    if self._matches_criteria(search_content, pattern_info):
                         matches_by_criteria[criterio] += 1
                         matched_criteria.add(criterio)
 
                 if subject_match:
                     matches_by_criteria['subject_combination'] += 1
 
-                if matched_criteria or subject_match:
+                message_matches = bool(matched_criteria or subject_match)
+
+                if sender_match_label:
+                    matches_by_criteria['sender_filter_total'] += 1
+                    matches_by_criteria[f"sender:{sender_match_label}"] += 1
+                    if not message_matches:
+                        message_matches = True
+
+                if message_matches:
                     unique_emails.add(msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id))
 
                 processed += 1
@@ -381,6 +450,10 @@ class SearchService:
             for criterio, count in matches_by_criteria.items():
                 if criterio == 'subject_combination':
                     label = 'Todos los criterios presentes en el asunto'
+                elif criterio == 'sender_filter_total':
+                    label = 'Remitentes filtrados (total)'
+                elif criterio.startswith('sender:'):
+                    label = f"Remitente coincidió: {criterio.split(':', 1)[1]}"
                 else:
                     label = criterio
                 self._log(f"  📌 '{label}': {count} coincidencias")
@@ -459,6 +532,18 @@ class SearchService:
 
         except Exception as e:
             self._log(f"⚠️ Error extrayendo contenido: {e}")
+
+        # Preparar variantes normalizadas y tokens para coincidencias flexibles
+        for field in self.search_fields:
+            value = content.get(field, '')
+            normalized = self._normalize_text(value)
+            content[f"{field}_normalized"] = normalized
+            content[f"{field}_tokens"] = self._tokenize(normalized)
+
+        combined = " ".join(content.get(field, '') for field in self.search_fields if content.get(field))
+        content['combined_text'] = combined.strip()
+        content['combined_normalized'] = self._normalize_text(combined)
+        content['combined_tokens'] = self._tokenize(content['combined_normalized'])
 
         return content
 
@@ -550,48 +635,117 @@ class SearchService:
 
         return body_content.strip()
 
-    def _subject_matches_all_keywords(self, subject, criterios):
-        """
-        Verifica si el asunto contiene todos los criterios proporcionados.
-
-        Args:
-            subject (str): Asunto del correo.
-            criterios (list): Lista de criterios normalizados.
-
-        Returns:
-            bool: True si el asunto contiene todos los criterios, False en caso contrario.
-        """
-        if not subject or len(criterios) < 2:
+    def _pattern_matches_field(self, pattern, field_value, normalized_field, field_tokens, allow_fuzzy=False):
+        """Evalúa si un campo del correo coincide con un patrón determinado."""
+        if not field_value and not normalized_field:
             return False
 
-        subject_lower = subject.lower()
-        for criterio in criterios:
-            if not criterio:
-                return False
-            if criterio.lower() not in subject_lower:
-                return False
-        return True
+        regex = pattern.get('regex')
+        if field_value and regex and regex.search(field_value):
+            return True
+
+        normalized_criterio = pattern.get('normalized')
+        tokens = pattern.get('tokens')
+
+        if normalized_field:
+            if normalized_criterio and normalized_criterio in normalized_field:
+                return True
+            if tokens and field_tokens and tokens.issubset(field_tokens):
+                return True
+            if allow_fuzzy and normalized_criterio and self._is_fuzzy_match(normalized_field, normalized_criterio):
+                return True
+
+        return False
 
     def _matches_criteria(self, search_content, pattern):
-        """
-        Verifica si el contenido coincide con el patrón de búsqueda.
-
-        Args:
-            search_content (dict): Contenido extraído del email
-            pattern: Patrón regex compilado
-
-        Returns:
-            bool: True si hay coincidencia
-        """
+        """Verifica si cualquier campo del correo coincide con el patrón proporcionado."""
         try:
-            # Buscar en todos los campos configurados
             for field in self.search_fields:
-                content = search_content.get(field, '')
-                if content and pattern.search(content):
+                if self._pattern_matches_field(
+                    pattern,
+                    search_content.get(field, ''),
+                    search_content.get(f"{field}_normalized"),
+                    search_content.get(f"{field}_tokens"),
+                    allow_fuzzy=field in self.fuzzy_fields
+                ):
                     return True
-            return False
+
+            return self._pattern_matches_field(
+                pattern,
+                search_content.get('combined_text', ''),
+                search_content.get('combined_normalized'),
+                search_content.get('combined_tokens'),
+                allow_fuzzy=False
+            )
         except Exception:
             return False
+
+    def _subject_matches_all_keywords(self, search_content, patterns):
+        """Comprueba si el asunto contiene todos los patrones definidos."""
+        if len(patterns) < 2:
+            return False
+
+        subject_value = search_content.get('subject', '')
+        subject_normalized = search_content.get('subject_normalized')
+        subject_tokens = search_content.get('subject_tokens')
+
+        if not subject_value and not subject_normalized:
+            return False
+
+        for pattern in patterns:
+            if not self._pattern_matches_field(
+                pattern,
+                subject_value,
+                subject_normalized,
+                subject_tokens,
+                allow_fuzzy=True
+            ):
+                return False
+
+        return True
+
+    def _sender_matches(self, search_content, sender_patterns):
+        """Verifica si el remitente coincide con alguno de los patrones configurados."""
+        if not sender_patterns:
+            return (False, None)
+
+        sender_value = search_content.get('from', '')
+        sender_normalized = search_content.get('from_normalized')
+        sender_tokens = search_content.get('from_tokens')
+
+        if not sender_value and not sender_normalized:
+            return (False, None)
+
+        for pattern in sender_patterns:
+            if self._pattern_matches_field(
+                pattern,
+                sender_value,
+                sender_normalized,
+                sender_tokens,
+                allow_fuzzy=True
+            ):
+                return True, pattern.get('original')
+
+        return (False, None)
+
+    def _is_fuzzy_match(self, normalized_field, normalized_criterio):
+        """Evalúa coincidencias parciales para títulos similares."""
+        if not normalized_field or not normalized_criterio:
+            return False
+
+        if len(normalized_criterio) <= 4:
+            return normalized_criterio in normalized_field
+
+        matcher = SequenceMatcher(None, normalized_criterio, normalized_field)
+        if matcher.ratio() >= self.fuzzy_match_threshold:
+            return True
+
+        longest = matcher.find_longest_match(0, len(normalized_criterio), 0, len(normalized_field))
+        if longest.size == 0:
+            return False
+
+        partial_ratio = longest.size / len(normalized_criterio)
+        return partial_ratio >= self.fuzzy_match_threshold
 
     def _load_smtp_config(self):
         """
