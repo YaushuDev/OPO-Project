@@ -15,12 +15,10 @@ import time
 from pathlib import Path
 from gui.models.profile_manager import ProfileManager
 from gui.components.profile_modal import ProfileModal
-from gui.components.daily_scheduler_modal import DailySchedulerModal
-from gui.components.weekly_scheduler_modal import WeeklySchedulerModal
-from gui.components.monthly_scheduler_modal import MonthlySchedulerModal
+from gui.components.scheduler_modal import SchedulerModal
 from services.report_service import ReportService
 from services.email_service import EmailService
-from services.scheduler_service import DailySchedulerService, WeeklySchedulerService, MonthlySchedulerService
+from services.scheduler_service import UnifiedSchedulerService
 from services.search_service import SearchService
 from services.progress_service import ProgressService
 
@@ -60,23 +58,14 @@ class TopPanel:
         # Ruta al archivo de configuración
         self.config_file = Path("config") / "scheduler_config.json"
 
-        # Inicializar los servicios de programación separados
-        self.daily_scheduler = DailySchedulerService(
+        # Inicializar el servicio de programación unificado
+        self.scheduler_service = UnifiedSchedulerService(
             self.config_file,
-            report_generator=self._generate_scheduled_report,
-            log_callback=self._add_log
-        )
-
-        self.weekly_scheduler = WeeklySchedulerService(
-            self.config_file,
-            weekly_report_generator=self._generate_scheduled_weekly_report,
-            log_callback=self._add_log
-        )
-
-        # Inicializar el servicio de programación mensual
-        self.monthly_scheduler = MonthlySchedulerService(
-            self.config_file,
-            monthly_report_generator=self._generate_scheduled_monthly_report,
+            callbacks={
+                "daily": self._generate_scheduled_report,
+                "weekly": self._generate_scheduled_weekly_report,
+                "monthly": self._generate_scheduled_monthly_report
+            },
             log_callback=self._add_log
         )
 
@@ -132,43 +121,27 @@ class TopPanel:
         )
         self.generate_monthly_report_btn.grid(row=0, column=2, padx=(0, 5))
 
-        # Botón de programación diaria
-        self.schedule_daily_btn = ttk.Button(
+        # Botón de programación unificada
+        self.schedule_reports_btn = ttk.Button(
             self.button_frame,
-            text="Programar Diarios",
-            command=self._open_daily_scheduler_modal
+            text="Programar Reportes",
+            command=self._open_scheduler_modal
         )
-        self.schedule_daily_btn.grid(row=0, column=3, padx=(0, 5))
-
-        # Botón de programación semanal
-        self.schedule_weekly_btn = ttk.Button(
-            self.button_frame,
-            text="Programar Semanales",
-            command=self._open_weekly_scheduler_modal
-        )
-        self.schedule_weekly_btn.grid(row=0, column=4, padx=(0, 5))
-
-        # Botón de programación mensual
-        self.schedule_monthly_btn = ttk.Button(
-            self.button_frame,
-            text="Programar Mensuales",
-            command=self._open_monthly_scheduler_modal
-        )
-        self.schedule_monthly_btn.grid(row=0, column=5, padx=(0, 5))
+        self.schedule_reports_btn.grid(row=0, column=3, padx=(0, 5))
 
         self.search_all_btn = ttk.Button(
             self.button_frame,
             text="Buscar Todos",
             command=self._run_global_search_async
         )
-        self.search_all_btn.grid(row=0, column=6, padx=(0, 5))
+        self.search_all_btn.grid(row=0, column=4, padx=(0, 5))
 
         self.new_btn = ttk.Button(
             self.button_frame,
             text="Nuevo Perfil",
             command=self._open_new_profile_modal
         )
-        self.new_btn.grid(row=0, column=7)
+        self.new_btn.grid(row=0, column=5)
 
         # Frame para el grid con scrollbar
         self.grid_frame = ttk.Frame(self.parent_frame)
@@ -345,103 +318,35 @@ class TopPanel:
 
         ProfileModal(self.parent_frame, self.profile_manager, callback=self._load_profiles)
 
-    def _open_daily_scheduler_modal(self):
-        """Abre el modal de programación diaria de manera segura."""
+    def _open_scheduler_modal(self):
+        """Abre el modal unificado de programación de reportes."""
         if self._check_operation_in_progress():
             return
 
         try:
             if self.bottom_right_panel:
                 self.bottom_right_panel.add_log_entry(
-                    "Abriendo configuración de programación de reportes diarios")
+                    "Abriendo configuración unificada de programación de reportes")
 
-            # Deshabilitar botón temporalmente
-            self.schedule_daily_btn.config(state="disabled")
+            self.schedule_reports_btn.config(state="disabled")
 
-            # Abrir modal de configuración
-            daily_scheduler_modal = DailySchedulerModal(self.parent_frame, self.bottom_right_panel)
-
-            # Programar rehabilitación del botón y reinicio del servicio
-            def restore_and_restart():
-                self.schedule_daily_btn.config(state="normal")
-                # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
+            def on_close():
+                self.schedule_reports_btn.config(state="normal")
                 try:
-                    self.daily_scheduler.restart()
-                    self._add_log("✅ Configuración de programación diaria actualizada")
+                    self.scheduler_service.restart()
+                    self._add_log("✅ Configuración de programación actualizada")
                 except Exception as e:
-                    self._add_log(f"⚠️ Error al reiniciar programación diaria: {e}")
+                    self._add_log(f"⚠️ Error al reiniciar programación automática: {e}")
 
-            self.parent_frame.after(1000, restore_and_restart)
+            SchedulerModal(
+                self.parent_frame,
+                self.bottom_right_panel,
+                on_close=on_close
+            )
 
         except Exception as e:
-            self.schedule_daily_btn.config(state="normal")
-            self._add_log(f"❌ Error al abrir configuración de programación diaria: {e}")
-            messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
-
-    def _open_weekly_scheduler_modal(self):
-        """Abre el modal de programación semanal de manera segura."""
-        if self._check_operation_in_progress():
-            return
-
-        try:
-            if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry(
-                    "Abriendo configuración de programación de reportes semanales")
-
-            # Deshabilitar botón temporalmente
-            self.schedule_weekly_btn.config(state="disabled")
-
-            # Abrir modal de configuración
-            weekly_scheduler_modal = WeeklySchedulerModal(self.parent_frame, self.bottom_right_panel)
-
-            # Programar rehabilitación del botón y reinicio del servicio
-            def restore_and_restart():
-                self.schedule_weekly_btn.config(state="normal")
-                # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
-                try:
-                    self.weekly_scheduler.restart()
-                    self._add_log("✅ Configuración de programación semanal actualizada")
-                except Exception as e:
-                    self._add_log(f"⚠️ Error al reiniciar programación semanal: {e}")
-
-            self.parent_frame.after(1000, restore_and_restart)
-
-        except Exception as e:
-            self.schedule_weekly_btn.config(state="normal")
-            self._add_log(f"❌ Error al abrir configuración de programación semanal: {e}")
-            messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
-
-    def _open_monthly_scheduler_modal(self):
-        """Abre el modal de programación mensual de manera segura."""
-        if self._check_operation_in_progress():
-            return
-
-        try:
-            if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry(
-                    "Abriendo configuración de programación de reportes mensuales")
-
-            # Deshabilitar botón temporalmente
-            self.schedule_monthly_btn.config(state="disabled")
-
-            # Abrir modal de configuración
-            monthly_scheduler_modal = MonthlySchedulerModal(self.parent_frame, self.bottom_right_panel)
-
-            # Programar rehabilitación del botón y reinicio del servicio
-            def restore_and_restart():
-                self.schedule_monthly_btn.config(state="normal")
-                # Reiniciar el servicio cuando se cierre el modal para aplicar los cambios
-                try:
-                    self.monthly_scheduler.restart()
-                    self._add_log("✅ Configuración de programación mensual actualizada")
-                except Exception as e:
-                    self._add_log(f"⚠️ Error al reiniciar programación mensual: {e}")
-
-            self.parent_frame.after(1000, restore_and_restart)
-
-        except Exception as e:
-            self.schedule_monthly_btn.config(state="normal")
-            self._add_log(f"❌ Error al abrir configuración de programación mensual: {e}")
+            self.schedule_reports_btn.config(state="normal")
+            self._add_log(f"❌ Error al abrir configuración de programación: {e}")
             messagebox.showerror("Error", f"No se pudo abrir la configuración: {e}")
 
     def _check_operation_in_progress(self):
@@ -967,9 +872,14 @@ class TopPanel:
 
     def _set_buttons_state(self, state):
         """Cambia el estado de todos los botones principales."""
-        buttons = [self.generate_report_btn, self.generate_weekly_report_btn, self.generate_monthly_report_btn,
-                   self.schedule_daily_btn, self.schedule_weekly_btn, self.schedule_monthly_btn,
-                   self.search_all_btn, self.new_btn]
+        buttons = [
+            self.generate_report_btn,
+            self.generate_weekly_report_btn,
+            self.generate_monthly_report_btn,
+            self.schedule_reports_btn,
+            self.search_all_btn,
+            self.new_btn
+        ]
         for btn in buttons:
             btn.config(state=state)
 
@@ -1145,5 +1055,6 @@ class TopPanel:
             "daily_scheduler": True,
             "weekly_scheduler": True,
             "monthly_scheduler": True,
+            "unified_scheduler": True,
             "optimized_ui": True
         }

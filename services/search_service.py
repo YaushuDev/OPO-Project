@@ -347,15 +347,24 @@ class SearchService:
                 # Extraer contenido para búsqueda
                 search_content = self._extract_search_content(email_message)
 
-                # Verificar coincidencias con cualquier criterio
-                email_matches = False
+                # Verificar coincidencias con cualquier criterio y combinación de título
+                matched_criteria = set()
+                subject_match = self._subject_matches_all_keywords(
+                    search_content.get('subject', ''),
+                    criterios
+                )
+
                 for criterio, pattern in search_patterns:
+                    if criterio in matched_criteria:
+                        continue
                     if self._matches_criteria(search_content, pattern):
                         matches_by_criteria[criterio] += 1
-                        email_matches = True
-                        break  # Un email solo cuenta una vez, aunque coincida con múltiples criterios
+                        matched_criteria.add(criterio)
 
-                if email_matches:
+                if subject_match:
+                    matches_by_criteria['subject_combination'] += 1
+
+                if matched_criteria or subject_match:
                     unique_emails.add(msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id))
 
                 processed += 1
@@ -367,9 +376,14 @@ class SearchService:
                 continue
 
         # Log de estadísticas por criterio
-        self._log(f"📈 Estadísticas por criterio:")
-        for criterio, count in matches_by_criteria.items():
-            self._log(f"  📌 '{criterio}': {count} coincidencias")
+        if matches_by_criteria:
+            self._log("📈 Estadísticas por criterio:")
+            for criterio, count in matches_by_criteria.items():
+                if criterio == 'subject_combination':
+                    label = 'Todos los criterios presentes en el asunto'
+                else:
+                    label = criterio
+                self._log(f"  📌 '{label}': {count} coincidencias")
 
         return unique_emails
 
@@ -535,6 +549,28 @@ class SearchService:
             self._log(f"⚠️ Error extrayendo cuerpo: {e}")
 
         return body_content.strip()
+
+    def _subject_matches_all_keywords(self, subject, criterios):
+        """
+        Verifica si el asunto contiene todos los criterios proporcionados.
+
+        Args:
+            subject (str): Asunto del correo.
+            criterios (list): Lista de criterios normalizados.
+
+        Returns:
+            bool: True si el asunto contiene todos los criterios, False en caso contrario.
+        """
+        if not subject or len(criterios) < 2:
+            return False
+
+        subject_lower = subject.lower()
+        for criterio in criterios:
+            if not criterio:
+                return False
+            if criterio.lower() not in subject_lower:
+                return False
+        return True
 
     def _matches_criteria(self, search_content, pattern):
         """
