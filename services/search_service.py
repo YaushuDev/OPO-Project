@@ -166,7 +166,7 @@ class SearchService:
         normalized = []
         for criterio in criterios:
             if isinstance(criterio, str):
-                cleaned = criterio.strip()
+                cleaned = self._fix_text_encoding(criterio).strip()
                 if cleaned and len(cleaned) >= 2:  # Mínimo 2 caracteres
                     normalized.append(cleaned)
 
@@ -323,12 +323,13 @@ class SearchService:
         patterns = []
 
         for criterio in criterios:
-            regex = re.compile(re.escape(criterio), re.IGNORECASE | re.UNICODE)
-            normalized = self._normalize_text(criterio)
+            cleaned = self._fix_text_encoding(criterio)
+            regex = re.compile(re.escape(cleaned), re.IGNORECASE | re.UNICODE)
+            normalized = self._normalize_text(cleaned)
             tokens = self._tokenize(normalized)
 
             patterns.append({
-                'original': criterio,
+                'original': cleaned,
                 'regex': regex,
                 'normalized': normalized,
                 'tokens': tokens
@@ -347,6 +348,21 @@ class SearchService:
         text = re.sub(r'[^a-z0-9\s]', ' ', text)
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
+
+    def _fix_text_encoding(self, text):
+        """Corrige secuencias mal decodificadas comunes en textos UTF-8."""
+        if not text or not isinstance(text, str):
+            return text
+
+        suspicious_sequences = ('Ã', 'Â', 'Ð', 'Å', '¤')
+        if not any(seq in text for seq in suspicious_sequences):
+            return text
+
+        try:
+            fixed = text.encode('latin1').decode('utf-8')
+            return fixed
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return text
 
     def _tokenize(self, text):
         """Convierte el texto normalizado en un conjunto de tokens únicos."""
@@ -583,6 +599,7 @@ class SearchService:
                 else:
                     decoded_str += str(part)
 
+            decoded_str = self._fix_text_encoding(decoded_str)
             return decoded_str.strip()
 
         except Exception as e:
@@ -633,7 +650,7 @@ class SearchService:
         except Exception as e:
             self._log(f"⚠️ Error extrayendo cuerpo: {e}")
 
-        return body_content.strip()
+        return self._fix_text_encoding(body_content.strip())
 
     def _pattern_matches_field(self, pattern, field_value, normalized_field, field_tokens, allow_fuzzy=False):
         """Evalúa si un campo del correo coincide con un patrón determinado."""
