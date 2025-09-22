@@ -11,6 +11,13 @@ import json
 import os
 from pathlib import Path
 
+from services.email_config import (
+    DEFAULT_SUBJECT_TEMPLATES,
+    FREQUENCIES,
+    FREQUENCY_DISPLAY_NAMES,
+    normalize_recipients_config,
+)
+
 
 class EmailRecipientsModal:
     """Modal para configurar destinatarios de correo y plantillas de asunto."""
@@ -33,17 +40,18 @@ class EmailRecipientsModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Configuración de Envío de Correos")
-        self.modal.geometry("480x520")  # Aumentamos altura para incluir plantilla mensual
+        self.modal.geometry("520x720")
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
 
         # Variables
-        self.recipient_email = tk.StringVar()
-        self.cc_emails = tk.StringVar()
-        self.subject_template_daily = tk.StringVar(value="Reporte Diario de Búsqueda de Correos - {date}")
-        self.subject_template_weekly = tk.StringVar(value="Reporte Semanal de Búsqueda de Correos - {date}")
-        self.subject_template_monthly = tk.StringVar(value="Reporte Mensual de Búsqueda de Correos - {date}")
+        self.recipient_vars = {freq: tk.StringVar() for freq in FREQUENCIES}
+        self.cc_vars = {freq: tk.StringVar() for freq in FREQUENCIES}
+        self.subject_vars = {
+            freq: tk.StringVar(value=DEFAULT_SUBJECT_TEMPLATES[freq])
+            for freq in FREQUENCIES
+        }
 
         # Centrar ventana
         self._center_window()
@@ -66,108 +74,86 @@ class EmailRecipientsModal:
             text="📧 Configuración de Envío",
             font=("Arial", 14, "bold")
         )
-        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 25))
+        title_label.grid(row=0, column=0, sticky="w", pady=(0, 25))
 
-        # Destinatario principal
-        ttk.Label(
-            main_frame,
-            text="Destinatario Principal:",
-            font=("Arial", 10, "bold")
-        ).grid(row=1, column=0, sticky="w", pady=(0, 5))
+        row = 1
+        for freq in FREQUENCIES:
+            section = ttk.LabelFrame(
+                main_frame,
+                text=FREQUENCY_DISPLAY_NAMES[freq],
+                padding="10 10 10 10"
+            )
+            section.grid(row=row, column=0, sticky="ew", pady=(0, 15))
+            section.columnconfigure(0, weight=1)
 
-        recipient_entry = ttk.Entry(
-            main_frame,
-            textvariable=self.recipient_email,
-            width=50,
-            font=("Arial", 10)
-        )
-        recipient_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+            ttk.Label(
+                section,
+                text="Destinatario Principal:",
+                font=("Arial", 10, "bold")
+            ).grid(row=0, column=0, sticky="w")
 
-        # CC (opcional)
-        ttk.Label(
-            main_frame,
-            text="CC (separar múltiples emails con coma):",
-            font=("Arial", 10, "bold")
-        ).grid(row=3, column=0, sticky="w", pady=(0, 5))
+            ttk.Entry(
+                section,
+                textvariable=self.recipient_vars[freq],
+                width=50,
+                font=("Arial", 10)
+            ).grid(row=1, column=0, sticky="ew", pady=(0, 10))
 
-        cc_entry = ttk.Entry(
-            main_frame,
-            textvariable=self.cc_emails,
-            width=50,
-            font=("Arial", 10)
-        )
-        cc_entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+            ttk.Label(
+                section,
+                text="CC (separar múltiples emails con coma):",
+                font=("Arial", 10, "bold")
+            ).grid(row=2, column=0, sticky="w")
 
-        # Separador
+            ttk.Entry(
+                section,
+                textvariable=self.cc_vars[freq],
+                width=50,
+                font=("Arial", 10)
+            ).grid(row=3, column=0, sticky="ew")
+
+            row += 1
+
         separator = ttk.Separator(main_frame, orient="horizontal")
-        separator.grid(row=5, column=0, columnspan=2, sticky="ew", pady=10)
+        separator.grid(row=row, column=0, sticky="ew", pady=10)
+        row += 1
 
-        # Título sección plantillas
         templates_title = ttk.Label(
             main_frame,
             text="Plantillas de Asunto",
             font=("Arial", 11, "bold"),
             foreground="navy"
         )
-        templates_title.grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        templates_title.grid(row=row, column=0, sticky="w", pady=(0, 10))
+        row += 1
 
-        # Plantilla de asunto para reportes diarios
-        ttk.Label(
-            main_frame,
-            text="Plantilla para Reportes Diarios:",
-            font=("Arial", 10, "bold")
-        ).grid(row=7, column=0, sticky="w", pady=(0, 5))
+        for freq in FREQUENCIES:
+            ttk.Label(
+                main_frame,
+                text=f"Plantilla para {FREQUENCY_DISPLAY_NAMES[freq]}:",
+                font=("Arial", 10, "bold")
+            ).grid(row=row, column=0, sticky="w", pady=(0, 5))
+            row += 1
 
-        daily_subject_entry = ttk.Entry(
-            main_frame,
-            textvariable=self.subject_template_daily,
-            width=50,
-            font=("Arial", 10)
-        )
-        daily_subject_entry.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+            ttk.Entry(
+                main_frame,
+                textvariable=self.subject_vars[freq],
+                width=50,
+                font=("Arial", 10)
+            ).grid(row=row, column=0, sticky="ew", pady=(0, 15))
+            row += 1
 
-        # Plantilla de asunto para reportes semanales
-        ttk.Label(
-            main_frame,
-            text="Plantilla para Reportes Semanales:",
-            font=("Arial", 10, "bold")
-        ).grid(row=9, column=0, sticky="w", pady=(0, 5))
-
-        weekly_subject_entry = ttk.Entry(
-            main_frame,
-            textvariable=self.subject_template_weekly,
-            width=50,
-            font=("Arial", 10)
-        )
-        weekly_subject_entry.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(0, 15))
-
-        # Plantilla de asunto para reportes mensuales
-        ttk.Label(
-            main_frame,
-            text="Plantilla para Reportes Mensuales:",
-            font=("Arial", 10, "bold")
-        ).grid(row=11, column=0, sticky="w", pady=(0, 5))
-
-        monthly_subject_entry = ttk.Entry(
-            main_frame,
-            textvariable=self.subject_template_monthly,
-            width=50,
-            font=("Arial", 10)
-        )
-        monthly_subject_entry.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-
-        # Nota explicativa
         note_label = ttk.Label(
             main_frame,
             text="Nota: Use {date} en el asunto para incluir la fecha actual",
             font=("Arial", 9),
             foreground="gray"
         )
-        note_label.grid(row=13, column=0, columnspan=2, sticky="w", pady=(0, 20))
+        note_label.grid(row=row, column=0, sticky="w", pady=(0, 20))
+        row += 1
 
-        # Botones
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=14, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=row, column=0, sticky="ew")
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
@@ -185,7 +171,6 @@ class EmailRecipientsModal:
         )
         close_btn.grid(row=0, column=1, padx=(5, 0), sticky="w")
 
-        # Configurar columnas expandibles
         main_frame.columnconfigure(0, weight=1)
 
     def _center_window(self):
@@ -202,21 +187,16 @@ class EmailRecipientsModal:
         try:
             if os.path.exists(self.config_file):
                 with open(self.config_file, "r", encoding="utf-8") as file:
-                    config = json.load(file)
+                    raw_config = json.load(file)
+                    config = normalize_recipients_config(raw_config)
 
-                    self.recipient_email.set(config.get("recipient", ""))
-                    self.cc_emails.set(config.get("cc", ""))
-
-                    # Cargar plantillas de asunto
-                    self.subject_template_daily.set(
-                        config.get("subject_template_daily", "Reporte Diario de Búsqueda de Correos - {date}")
-                    )
-                    self.subject_template_weekly.set(
-                        config.get("subject_template_weekly", "Reporte Semanal de Búsqueda de Correos - {date}")
-                    )
-                    self.subject_template_monthly.set(
-                        config.get("subject_template_monthly", "Reporte Mensual de Búsqueda de Correos - {date}")
-                    )
+                    for freq in FREQUENCIES:
+                        freq_config = config.get(freq, {})
+                        self.recipient_vars[freq].set(freq_config.get("recipient", ""))
+                        self.cc_vars[freq].set(freq_config.get("cc", ""))
+                        self.subject_vars[freq].set(
+                            freq_config.get("subject_template", DEFAULT_SUBJECT_TEMPLATES[freq])
+                        )
 
                     if self.bottom_panel:
                         self.bottom_panel.add_log_entry("Configuración de destinatarios cargada")
@@ -227,46 +207,49 @@ class EmailRecipientsModal:
 
     def _save_config(self):
         """Guarda la configuración de destinatarios."""
-        recipient = self.recipient_email.get().strip()
-        cc = self.cc_emails.get().strip()
-        subject_daily = self.subject_template_daily.get().strip()
-        subject_weekly = self.subject_template_weekly.get().strip()
-        subject_monthly = self.subject_template_monthly.get().strip()
+        config = {}
 
-        if not recipient:
-            messagebox.showerror("Error", "El destinatario principal es obligatorio")
-            return
+        for freq in FREQUENCIES:
+            recipient = self.recipient_vars[freq].get().strip()
+            cc_value = self.cc_vars[freq].get().strip()
+            subject_template = self.subject_vars[freq].get().strip()
 
-        # Validar formato de email del destinatario principal
-        if not self._validate_email(recipient):
-            messagebox.showerror("Error", "El formato del destinatario principal no es válido")
-            return
+            if not recipient:
+                messagebox.showerror(
+                    "Error",
+                    f"El destinatario para {FREQUENCY_DISPLAY_NAMES[freq]} es obligatorio",
+                )
+                return
 
-        # Validar emails CC si se proporcionaron
-        if cc:
-            cc_list = [email.strip() for email in cc.split(",")]
-            for email in cc_list:
-                if email and not self._validate_email(email):
-                    messagebox.showerror("Error", f"El formato del email CC '{email}' no es válido")
-                    return
+            if not self._validate_email(recipient):
+                messagebox.showerror(
+                    "Error",
+                    f"El formato del destinatario para {FREQUENCY_DISPLAY_NAMES[freq]} no es válido",
+                )
+                return
 
-        # Validar que las plantillas de asunto no estén vacías
-        if not subject_daily:
-            subject_daily = "Reporte Diario de Búsqueda de Correos - {date}"
+            cleaned_cc = []
+            if cc_value:
+                for email in cc_value.split(","):
+                    email = email.strip()
+                    if not email:
+                        continue
+                    if not self._validate_email(email):
+                        messagebox.showerror(
+                            "Error",
+                            f"El formato del email CC '{email}' en {FREQUENCY_DISPLAY_NAMES[freq]} no es válido",
+                        )
+                        return
+                    cleaned_cc.append(email)
 
-        if not subject_weekly:
-            subject_weekly = "Reporte Semanal de Búsqueda de Correos - {date}"
+            if not subject_template:
+                subject_template = DEFAULT_SUBJECT_TEMPLATES[freq]
 
-        if not subject_monthly:
-            subject_monthly = "Reporte Mensual de Búsqueda de Correos - {date}"
-
-        config = {
-            "recipient": recipient,
-            "cc": cc,
-            "subject_template_daily": subject_daily,
-            "subject_template_weekly": subject_weekly,
-            "subject_template_monthly": subject_monthly
-        }
+            config[freq] = {
+                "recipient": recipient,
+                "cc": ", ".join(cleaned_cc) if cleaned_cc else "",
+                "subject_template": subject_template,
+            }
 
         try:
             with open(self.config_file, "w", encoding="utf-8") as file:
@@ -306,7 +289,8 @@ class EmailRecipientsModal:
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, "r", encoding="utf-8") as file:
-                    return json.load(file)
-            except:
+                    raw_config = json.load(file)
+                return normalize_recipients_config(raw_config)
+            except Exception:
                 return None
         return None
