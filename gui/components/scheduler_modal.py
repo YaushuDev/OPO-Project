@@ -58,7 +58,7 @@ class SchedulerModal:
         # Construcción de UI
         self.modal = tk.Toplevel(parent)
         self.modal.title("Programación de Reportes")
-        self.modal.geometry("820x640")
+        self.modal.geometry("820x740")
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()

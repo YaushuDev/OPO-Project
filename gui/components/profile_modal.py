@@ -87,7 +87,7 @@ class ProfileModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Editar Perfil" if self.edit_mode else "Nuevo Perfil")
-        self.modal.geometry("960x520")
+        self.modal.geometry("960x720")
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
