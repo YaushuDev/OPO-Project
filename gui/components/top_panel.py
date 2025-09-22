@@ -433,9 +433,9 @@ class TopPanel:
         if confirm:
             if self.profile_manager.delete_profile(profile.profile_id):
                 if self.bottom_right_panel:
-                self.bottom_right_panel.add_log_entry(
-                    f"Perfil eliminado: {profile.name} [{bot_type_text}] ({criterios_count} criterios)"
-                )
+                    self.bottom_right_panel.add_log_entry(
+                        f"Perfil eliminado: {profile.name} [{bot_type_text}] ({criterios_count} criterios)"
+                    )
                 self._load_profiles()
             else:
                 messagebox.showerror("Error", "No se pudo eliminar el perfil")
