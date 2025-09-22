@@ -278,13 +278,12 @@ class TopPanel:
         # Mostrar estadísticas en el log
         if profiles and self.bottom_right_panel:
             summary = self.profile_manager.get_profiles_summary()
-            automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
-            manual_bots = len([p for p in profiles if p.is_bot_manual()])
+            automatic_bots, manual_bots, offline_bots = self._get_bot_type_counts(profiles)
 
             self.bottom_right_panel.add_log_entry(
                 f"Perfiles cargados: {summary['total_profiles']} "
                 f"({summary['total_criteria']} criterios, "
-                f"{automatic_bots} automáticos, {manual_bots} manuales)"
+                f"{automatic_bots} automáticos, {manual_bots} manuales, {offline_bots} offline)"
             )
 
             if summary.get('profiles_with_responsable', 0) > 0:
@@ -383,11 +382,28 @@ class TopPanel:
             return True
         return False
 
+    @staticmethod
+    def _get_bot_type_plain(bot_type):
+        """Retorna el nombre legible del tipo de bot."""
+        mapping = {
+            "automatico": "Automático",
+            "manual": "Manual",
+            "offline": "Offline"
+        }
+        return mapping.get(bot_type, "No definido")
+
+    def _get_bot_type_counts(self, profiles):
+        """Calcula la cantidad de perfiles por tipo de bot."""
+        automatic_bots = len([p for p in profiles if hasattr(p, "is_bot_automatic") and p.is_bot_automatic()])
+        manual_bots = len([p for p in profiles if hasattr(p, "is_bot_manual") and p.is_bot_manual()])
+        offline_bots = len([p for p in profiles if hasattr(p, "is_bot_offline") and p.is_bot_offline()])
+        return automatic_bots, manual_bots, offline_bots
+
     def _edit_profile(self, profile):
         """Abre el modal para editar un perfil."""
         if self.bottom_right_panel:
             criterios_count = len(profile.search_criteria)
-            bot_type_text = "Automático" if profile.is_bot_automatic() else "Manual"
+            bot_type_text = self._get_bot_type_plain(getattr(profile, "bot_type", ""))
             optimal_text = f" (óptimo: {profile.optimal_executions})" if profile.track_optimal else ""
             sender_text = ""
             if profile.has_sender_filters():
@@ -409,7 +425,7 @@ class TopPanel:
         """Elimina un perfil tras confirmación."""
         criterios_count = len(profile.search_criteria)
         criterios_text = "criterio" if criterios_count == 1 else "criterios"
-        bot_type_text = "Automático" if profile.is_bot_automatic() else "Manual"
+        bot_type_text = self._get_bot_type_plain(getattr(profile, "bot_type", ""))
 
         optimal_text = ""
         if profile.track_optimal:
@@ -483,12 +499,11 @@ class TopPanel:
             # Calcular estadísticas iniciales
             total_criterios = sum(len(p.search_criteria) for p in profiles)
             tracking_profiles = [p for p in profiles if p.track_optimal]
-            automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
-            manual_bots = len([p for p in profiles if p.is_bot_manual()])
+            automatic_bots, manual_bots, offline_bots = self._get_bot_type_counts(profiles)
 
             self.progress_service.log_progress(
                 f"🚀 Búsqueda global iniciada: {len(profiles)} perfiles "
-                f"({automatic_bots} automáticos, {manual_bots} manuales), "
+                f"({automatic_bots} automáticos, {manual_bots} manuales, {offline_bots} offline), "
                 f"{total_criterios} criterios"
             )
 
@@ -538,8 +553,14 @@ class TopPanel:
 
             # Mostrar resultado
             self.parent_frame.after(0, lambda: self._show_search_results(
-                profiles_searched, total_criterios, total_found,
-                automatic_bots, manual_bots, tracking_profiles, optimal_achieved
+                profiles_searched,
+                total_criterios,
+                total_found,
+                automatic_bots,
+                manual_bots,
+                offline_bots,
+                tracking_profiles,
+                optimal_achieved
             ))
 
         except Exception as e:
@@ -562,12 +583,13 @@ class TopPanel:
             return 0
 
     def _show_search_results(self, profiles_searched, total_criterios, total_found,
-                             automatic_bots, manual_bots, tracking_profiles, optimal_achieved):
+                             automatic_bots, manual_bots, offline_bots,
+                             tracking_profiles, optimal_achieved):
         """Muestra los resultados de la búsqueda global."""
         result_message = f"✅ Se han procesado {profiles_searched} perfiles.\n" \
                          f"Total de criterios buscados: {total_criterios}\n" \
                          f"Total de ejecuciones encontradas: {total_found}\n" \
-                         f"Tipos de bot: {automatic_bots} automáticos, {manual_bots} manuales\n" \
+                         f"Tipos de bot: {automatic_bots} automáticos, {manual_bots} manuales, {offline_bots} offline\n" \
                          f"Método: Búsqueda mejorada con verificación de timestamp"
 
         if tracking_profiles:
@@ -687,8 +709,7 @@ class TopPanel:
         """Ejecuta la generación de reporte en un hilo separado."""
         try:
             summary = self.profile_manager.get_profiles_summary()
-            automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
-            manual_bots = len([p for p in profiles if p.is_bot_manual()])
+            automatic_bots, manual_bots, offline_bots = self._get_bot_type_counts(profiles)
 
             self.progress_service.log_progress("=" * 50)
             self.progress_service.log_progress("📊 GENERACIÓN DE REPORTE CON DATOS ACTUALIZADOS")
@@ -698,7 +719,7 @@ class TopPanel:
             self.progress_service.update_progress(1, len(profiles) + 2, "Actualizando datos de perfiles...")
             self.progress_service.log_progress(
                 f"📋 Actualizando {summary['total_profiles']} perfiles "
-                f"({automatic_bots} automáticos, {manual_bots} manuales)"
+                f"({automatic_bots} automáticos, {manual_bots} manuales, {offline_bots} offline)"
             )
 
             # Ejecutar búsqueda silenciosa para actualizar datos
@@ -730,8 +751,15 @@ class TopPanel:
                 self.progress_service.complete_operation(success_message)
 
                 # Mostrar resultado
-                self.parent_frame.after(0,
-                                        lambda: self._show_report_results(updated_summary, automatic_bots, manual_bots))
+                self.parent_frame.after(
+                    0,
+                    lambda: self._show_report_results(
+                        updated_summary,
+                        automatic_bots,
+                        manual_bots,
+                        offline_bots
+                    )
+                )
 
             else:
                 error_msg = "Reporte generado pero no se pudo enviar por correo"
@@ -852,7 +880,7 @@ class TopPanel:
 
         return total_found
 
-    def _show_report_results(self, updated_summary, automatic_bots, manual_bots):
+    def _show_report_results(self, updated_summary, automatic_bots, manual_bots, offline_bots):
         """Muestra los resultados de la generación de reporte."""
         messagebox.showinfo(
             "✅ Reporte Actualizado Enviado",
@@ -862,6 +890,7 @@ class TopPanel:
             f"• Perfiles óptimos: {updated_summary['optimal_profiles']}\n"
             f"• Bots automáticos: {automatic_bots}\n"
             f"• Bots manuales: {manual_bots}\n"
+            f"• Bots offline: {offline_bots}\n"
             f"• Búsqueda mejorada: Con verificación de timestamp"
         )
 
@@ -928,11 +957,13 @@ class TopPanel:
             return False
 
         summary = self.profile_manager.get_profiles_summary()
-        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
-        manual_bots = len([p for p in profiles if p.is_bot_manual()])
+        automatic_bots, manual_bots, offline_bots = self._get_bot_type_counts(profiles)
 
         self._add_log("=" * 40)
         self._add_log("📅 REPORTE DIARIO PROGRAMADO INICIADO")
+        self._add_log(
+            f"Tipos de bot disponibles: {automatic_bots} automáticos, {manual_bots} manuales, {offline_bots} offline"
+        )
 
         try:
             # Actualizar datos antes de generar reporte programado
@@ -1066,8 +1097,7 @@ class TopPanel:
         """Retorna los datos actuales del panel."""
         summary = self.profile_manager.get_profiles_summary()
         profiles = self.profile_manager.get_all_profiles()
-        automatic_bots = len([p for p in profiles if p.is_bot_automatic()])
-        manual_bots = len([p for p in profiles if p.is_bot_manual()])
+        automatic_bots, manual_bots, offline_bots = self._get_bot_type_counts(profiles)
 
         return {
             "panel_type": "top_panel",
@@ -1080,6 +1110,7 @@ class TopPanel:
             "avg_success_percentage": summary['avg_success_percentage'],
             "automatic_bots": automatic_bots,
             "manual_bots": manual_bots,
+            "offline_bots": offline_bots,
             "enhanced_search": True,
             "weekly_reports": True,
             "monthly_reports": True,

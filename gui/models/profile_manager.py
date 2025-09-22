@@ -185,6 +185,7 @@ class ProfileManager:
         stats = self.get_profiles_summary()
         automatic_bots = len([p for p in self.profiles if p.is_bot_automatic()])
         manual_bots = len([p for p in self.profiles if p.is_bot_manual()])
+        offline_bots = len([p for p in self.profiles if p.is_bot_offline()])
         sender_filter_profiles = len([p for p in self.profiles if p.has_sender_filters()])
         responsable_profiles = len([p for p in self.profiles if p.has_responsable()])
 
@@ -198,7 +199,9 @@ class ProfileManager:
         self._log(f"📊 Estadísticas detalladas:")
         self._log(f"  📁 Total: {stats['total_profiles']} perfiles")
         self._log(f"  🎯 Criterios: {stats['total_criteria']} total")
-        self._log(f"  🤖 Tipos: {automatic_bots} automáticos, {manual_bots} manuales")
+        self._log(
+            f"  🤖 Tipos: {automatic_bots} automáticos, {manual_bots} manuales, {offline_bots} offline"
+        )
         self._log(f"  ✉️ Filtros de remitente: {sender_filter_profiles} perfiles")
         self._log(f"  👥 Responsables definidos: {responsable_profiles}")
         self._log(f"  📈 Seguimiento: {stats['profiles_with_tracking']} con tracking óptimo")
@@ -304,7 +307,7 @@ class ProfileManager:
             search_criteria (str or list): Criterio(s) de búsqueda
             sender_filters (str or list, optional): Remitentes permitidos
             responsable (str, optional): Responsable asignado al perfil
-            bot_type (str, optional): Tipo de bot (automatico/manual)
+            bot_type (str, optional): Tipo de bot (automatico/manual/offline)
             track_optimal (bool, optional): Habilita seguimiento de ejecuciones óptimas
             optimal_executions (int, optional): Cantidad esperada de ejecuciones óptimas
 
@@ -589,6 +592,7 @@ class ProfileManager:
                 "success_rate": 0,
                 "automatic_bots": 0,
                 "manual_bots": 0,
+                "offline_bots": 0,
                 "profiles_with_sender_filter": 0,
                 "profiles_with_responsable": 0,
                 "success_categories": {}
@@ -615,6 +619,7 @@ class ProfileManager:
         # Estadísticas de tipos de bot
         automatic_bots = len([p for p in valid_profiles if p.is_bot_automatic()])
         manual_bots = len([p for p in valid_profiles if p.is_bot_manual()])
+        offline_bots = len([p for p in valid_profiles if p.is_bot_offline()])
         profiles_with_sender_filter = len([p for p in valid_profiles if p.has_sender_filters()])
         profiles_with_responsable = len([p for p in valid_profiles if p.has_responsable()])
 
@@ -638,6 +643,7 @@ class ProfileManager:
                                   1) if profiles_with_tracking else 0,
             "automatic_bots": automatic_bots,
             "manual_bots": manual_bots,
+            "offline_bots": offline_bots,
             "profiles_with_sender_filter": profiles_with_sender_filter,
             "profiles_with_responsable": profiles_with_responsable,
             "success_categories": success_categories
