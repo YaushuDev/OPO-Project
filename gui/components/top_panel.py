@@ -13,6 +13,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from collections import defaultdict
 from gui.models.profile_manager import ProfileManager
 from gui.components.profile_modal import ProfileModal
 from gui.components.scheduler_modal import SchedulerModal
@@ -511,6 +512,8 @@ class TopPanel:
             tracking_profiles = [p for p in profiles if p.track_optimal]
             automatic_bots, manual_bots, offline_bots = self._get_bot_type_counts(profiles)
 
+            alerts_by_recipient = defaultdict(list)
+
             self.progress_service.log_progress(
                 f"🚀 Búsqueda global iniciada: {len(profiles)} perfiles "
                 f"({automatic_bots} automáticos, {manual_bots} manuales, {offline_bots} offline), "
@@ -535,7 +538,7 @@ class TopPanel:
 
                 try:
                     # Ejecutar búsqueda para este perfil
-                    found = self._run_search_threaded(profile)
+                    found = self._run_search_threaded(profile, alerts_by_recipient)
                     total_found += found
                     profiles_searched += 1
 
@@ -551,6 +554,7 @@ class TopPanel:
                     continue
 
             # Programar actualización de UI en el hilo principal
+            self._send_performance_alerts(alerts_by_recipient)
             self.parent_frame.after(0, self._load_profiles)
 
             # Completar operación
@@ -577,20 +581,75 @@ class TopPanel:
             error_msg = f"Error durante búsqueda global: {e}"
             self.progress_service.error_operation(error_msg)
 
-    def _run_search_threaded(self, profile):
+    def _run_search_threaded(self, profile, alerts_by_recipient=None):
         """Ejecuta búsqueda para un perfil específico en hilo separado."""
         try:
             # Ejecutar búsqueda real usando el servicio mejorado
             total_found = self.search_service.search_emails(profile)
 
             # Actualizar resultados en el perfil
-            self.profile_manager.update_search_results(profile.profile_id, total_found)
+            updated_profile = self.profile_manager.update_search_results(profile.profile_id, total_found)
+
+            if alerts_by_recipient is not None and updated_profile and updated_profile.should_trigger_alert():
+                alerts_by_recipient[updated_profile.alert_recipient].append(updated_profile)
 
             return total_found
 
         except Exception as e:
             self.progress_service.log_progress(f"❌ Error en búsqueda de {profile.name}: {e}")
             return 0
+
+    def _send_performance_alerts(self, alerts_by_recipient, threshold=90):
+        """Envía alertas por email para perfiles con bajo rendimiento."""
+        if not alerts_by_recipient:
+            return
+
+        alerts_sent = False
+
+        for recipient, profiles in alerts_by_recipient.items():
+            if not recipient or not profiles:
+                continue
+
+            profiles_info = []
+            for profile in profiles:
+                percentage = profile.get_success_percentage()
+                profiles_info.append({
+                    "name": profile.name,
+                    "success_percentage": percentage if percentage is not None else 0.0,
+                    "found_emails": profile.found_emails,
+                    "optimal_executions": profile.optimal_executions,
+                    "last_search": profile.last_search.isoformat() if profile.last_search else ""
+                })
+
+            try:
+                success = self.email_service.send_performance_alert(
+                    recipient,
+                    profiles_info,
+                    threshold=threshold
+                )
+            except Exception as exc:  # Defensa adicional ante errores inesperados
+                self.progress_service.log_progress(
+                    f"⚠️ Error enviando alerta a {recipient}: {exc}"
+                )
+                continue
+
+            if success:
+                alerts_sent = True
+                for profile in profiles:
+                    profile.record_alert_sent()
+                self.progress_service.log_progress(
+                    f"📧 Alerta de seguimiento enviada a {recipient} ({len(profiles)} perfiles)"
+                )
+            else:
+                self.progress_service.log_progress(
+                    f"⚠️ No se pudo enviar la alerta de seguimiento a {recipient}"
+                )
+
+        if alerts_sent:
+            if not self.profile_manager.save_profiles():
+                self.progress_service.log_progress(
+                    "⚠️ No se pudieron guardar los registros de alertas enviadas"
+                )
 
     def _show_search_results(self, profiles_searched, total_criterios, total_found,
                              automatic_bots, manual_bots, offline_bots,
@@ -867,11 +926,12 @@ class TopPanel:
         """Ejecuta búsqueda global silenciosa en hilo separado."""
         total_found = 0
         optimal_achieved = 0
+        alerts_by_recipient = defaultdict(list)
 
         for i, profile in enumerate(profiles):
             self.progress_service.update_progress(i + 1, len(profiles), f"Actualizando: {profile.name}...")
 
-            found = self._run_search_threaded(profile)
+            found = self._run_search_threaded(profile, alerts_by_recipient)
             total_found += found
 
             if profile.is_success_optimal():
@@ -887,6 +947,8 @@ class TopPanel:
             f"🔄 Actualización completa: {total_found} ejecuciones encontradas, "
             f"{optimal_achieved} perfiles alcanzaron óptimo"
         )
+
+        self._send_performance_alerts(alerts_by_recipient)
 
         return total_found
 

@@ -68,6 +68,39 @@ class EmailService:
             print(f"Error al enviar correo: {e}")
             return False
 
+    def send_performance_alert(self, recipient_email, profiles_info, threshold=90):
+        """Envía una alerta cuando los perfiles no alcanzan el porcentaje óptimo."""
+        try:
+            smtp_config = self._load_smtp_config()
+            if not smtp_config:
+                raise Exception("No se encontró configuración SMTP. Configure SMTP primero.")
+
+            if not recipient_email:
+                raise Exception("Debe especificar un destinatario para la alerta de rendimiento.")
+
+            recipient = recipient_email.strip()
+            if not recipient:
+                raise Exception("El destinatario de alerta no puede estar vacío.")
+
+            msg = MIMEMultipart()
+            msg['From'] = smtp_config['username']
+            msg['To'] = recipient
+
+            current_date = datetime.now().strftime("%d/%m/%Y %H:%M")
+            msg['Subject'] = (
+                f"Alerta de seguimiento: perfiles por debajo de {threshold}% ({current_date})"
+            )
+
+            body = self._create_alert_body(profiles_info, threshold)
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+            self._send_email(smtp_config, msg)
+            return True
+
+        except Exception as e:
+            print(f"Error al enviar alerta de rendimiento: {e}")
+            return False
+
     def _load_smtp_config(self):
         """
         Carga configuración SMTP.
@@ -146,6 +179,61 @@ class EmailService:
             self._attach_file(msg, report_path)
 
         return msg
+
+    def _create_alert_body(self, profiles_info, threshold):
+        """Genera el cuerpo del correo de alerta de rendimiento."""
+        current_datetime = datetime.now().strftime("%d/%m/%Y a las %H:%M")
+
+        if not profiles_info:
+            profiles_info = []
+
+        lines = [
+            "Estimado/a,",
+            "",
+            (
+                f"Se detectó que los siguientes perfiles con seguimiento óptimo"
+                f" están por debajo del {threshold}% de éxito."
+            ),
+            "",
+            f"Fecha de revisión: {current_datetime}",
+            "",
+            "Perfiles afectados:"
+        ]
+
+        for info in profiles_info:
+            name = info.get('name', 'Perfil sin nombre')
+            success = info.get('success_percentage')
+            success_text = f"{success:.1f}%" if isinstance(success, (int, float)) else "N/D"
+            optimal = info.get('optimal_executions')
+            optimal_text = optimal if optimal is not None else "N/D"
+            found = info.get('found_emails')
+            found_text = found if found is not None else "N/D"
+            last_search = info.get('last_search')
+            if last_search:
+                try:
+                    last_search_dt = datetime.fromisoformat(last_search)
+                    last_search_text = last_search_dt.strftime("%d/%m/%Y %H:%M")
+                except (ValueError, TypeError):
+                    last_search_text = str(last_search)
+            else:
+                last_search_text = "Sin registros recientes"
+
+            lines.append(
+                f"• {name}: {success_text} de éxito | Óptimo: {optimal_text} | "
+                f"Ejecuciones: {found_text} | Última búsqueda: {last_search_text}"
+            )
+
+        lines.extend([
+            "",
+            "Se recomienda revisar la configuración de estos perfiles para ajustar criterios,",
+            "remitentes o cantidad de ejecuciones óptimas según corresponda.",
+            "",
+            "Este mensaje se generó automáticamente desde el sistema de seguimiento de perfiles.",
+            "Saludos cordiales,",
+            "Sistema Automatizado de Alertas"
+        ])
+
+        return "\n".join(lines)
 
     def _create_email_body(self, report_path, report_type_text):
         """
