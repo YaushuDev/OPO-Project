@@ -123,6 +123,12 @@ class ProfileManager:
             if sender_filters:
                 profile.sender_filters = profile._process_sender_filters(sender_filters)
 
+            # Normalizar responsable si existe
+            try:
+                profile.responsable = profile._process_responsable(getattr(profile, "responsable", ""))
+            except ValueError:
+                profile.responsable = ""
+
             # Verificar que el tipo de bot sea válido
             if profile.bot_type not in SearchProfile.BOT_TYPES:
                 profile.bot_type = "manual"  # Corrección automática
@@ -180,6 +186,7 @@ class ProfileManager:
         automatic_bots = len([p for p in self.profiles if p.is_bot_automatic()])
         manual_bots = len([p for p in self.profiles if p.is_bot_manual()])
         sender_filter_profiles = len([p for p in self.profiles if p.has_sender_filters()])
+        responsable_profiles = len([p for p in self.profiles if p.has_responsable()])
 
         # Estadísticas por categoría de éxito
         success_categories = {}
@@ -193,6 +200,7 @@ class ProfileManager:
         self._log(f"  🎯 Criterios: {stats['total_criteria']} total")
         self._log(f"  🤖 Tipos: {automatic_bots} automáticos, {manual_bots} manuales")
         self._log(f"  ✉️ Filtros de remitente: {sender_filter_profiles} perfiles")
+        self._log(f"  👥 Responsables definidos: {responsable_profiles}")
         self._log(f"  📈 Seguimiento: {stats['profiles_with_tracking']} con tracking óptimo")
 
         if success_categories:
@@ -286,8 +294,8 @@ class ProfileManager:
                     return None
         return None
 
-    def add_profile(self, name, search_criteria, sender_filters=None, bot_type=None,
-                    track_optimal=None, optimal_executions=None):
+    def add_profile(self, name, search_criteria, sender_filters=None, responsable=None,
+                    bot_type=None, track_optimal=None, optimal_executions=None):
         """
         Añade un nuevo perfil con validaciones robustas.
 
@@ -295,6 +303,7 @@ class ProfileManager:
             name (str): Nombre del perfil
             search_criteria (str or list): Criterio(s) de búsqueda
             sender_filters (str or list, optional): Remitentes permitidos
+            responsable (str, optional): Responsable asignado al perfil
             bot_type (str, optional): Tipo de bot (automatico/manual)
             track_optimal (bool, optional): Habilita seguimiento de ejecuciones óptimas
             optimal_executions (int, optional): Cantidad esperada de ejecuciones óptimas
@@ -309,7 +318,12 @@ class ProfileManager:
                 return None
 
             # Crear perfil (las validaciones están en SearchProfile.__init__)
-            profile = SearchProfile(name, search_criteria, sender_filters=sender_filters)
+            profile = SearchProfile(
+                name,
+                search_criteria,
+                sender_filters=sender_filters,
+                responsable=responsable
+            )
 
             # Configurar tipo de bot si se proporciona
             if bot_type in SearchProfile.BOT_TYPES:
@@ -336,7 +350,11 @@ class ProfileManager:
                 sender_info = ""
                 if profile.has_sender_filters():
                     sender_info = f", {len(profile.sender_filters)} remitente(s) filtrado(s)"
-                self._log(f"✅ Perfil creado: '{name}' con {criterios_count} criterio(s){sender_info}")
+                responsable_info = f", responsable: {profile.responsable}" if profile.has_responsable() else ""
+                self._log(
+                    f"✅ Perfil creado: '{name}' con {criterios_count} criterio(s)"
+                    f"{sender_info}{responsable_info}"
+                )
                 return profile
             else:
                 # Si falla al guardar, remover de la lista
@@ -367,7 +385,8 @@ class ProfileManager:
         return False
 
     def update_profile(self, profile_id, name, search_criteria, sender_filters=None,
-                       optimal_executions=None, track_optimal=None, bot_type=None):
+                       responsable=None, optimal_executions=None, track_optimal=None,
+                       bot_type=None):
         """
         Actualiza un perfil existente con validaciones.
 
@@ -376,6 +395,7 @@ class ProfileManager:
             name (str): Nuevo nombre
             search_criteria (str or list): Nuevo(s) criterio(s) de búsqueda
             sender_filters (str or list, optional): Nuevos filtros de remitente
+            responsable (str, optional): Responsable asignado al perfil
             optimal_executions (int, optional): Ejecuciones óptimas esperadas
             track_optimal (bool, optional): Habilita seguimiento de óptimos
             bot_type (str, optional): Tipo de bot
@@ -401,6 +421,7 @@ class ProfileManager:
             original_optimal = profile.optimal_executions
             original_track = profile.track_optimal
             original_bot_type = profile.bot_type
+            original_responsable = profile.responsable
 
             # Actualizar perfil (las validaciones están en SearchProfile.update)
             profile.update(
@@ -409,7 +430,8 @@ class ProfileManager:
                 optimal_executions,
                 track_optimal,
                 bot_type,
-                sender_filters
+                sender_filters,
+                responsable=responsable
             )
 
             # Validación adicional
@@ -421,6 +443,7 @@ class ProfileManager:
                 profile.optimal_executions = original_optimal
                 profile.track_optimal = original_track
                 profile.bot_type = original_bot_type
+                profile.responsable = original_responsable
                 self._log(f"❌ El perfil actualizado '{name}' no pasó las validaciones")
                 return None
 
@@ -430,7 +453,11 @@ class ProfileManager:
                 sender_info = ""
                 if profile.has_sender_filters():
                     sender_info = f", {len(profile.sender_filters)} remitente(s) filtrado(s)"
-                self._log(f"✅ Perfil actualizado: '{name}' con {criterios_count} criterio(s){sender_info}")
+                responsable_info = f", responsable: {profile.responsable}" if profile.has_responsable() else ""
+                self._log(
+                    f"✅ Perfil actualizado: '{name}' con {criterios_count} criterio(s)"
+                    f"{sender_info}{responsable_info}"
+                )
                 return profile
             else:
                 # Restaurar valores originales si falla al guardar
@@ -440,6 +467,7 @@ class ProfileManager:
                 profile.optimal_executions = original_optimal
                 profile.track_optimal = original_track
                 profile.bot_type = original_bot_type
+                profile.responsable = original_responsable
                 self._log(f"❌ Error al guardar cambios del perfil '{name}'")
                 return None
 
@@ -562,6 +590,7 @@ class ProfileManager:
                 "automatic_bots": 0,
                 "manual_bots": 0,
                 "profiles_with_sender_filter": 0,
+                "profiles_with_responsable": 0,
                 "success_categories": {}
             }
 
@@ -587,6 +616,7 @@ class ProfileManager:
         automatic_bots = len([p for p in valid_profiles if p.is_bot_automatic()])
         manual_bots = len([p for p in valid_profiles if p.is_bot_manual()])
         profiles_with_sender_filter = len([p for p in valid_profiles if p.has_sender_filters()])
+        profiles_with_responsable = len([p for p in valid_profiles if p.has_responsable()])
 
         # Categorías de éxito
         success_categories = {}
@@ -609,6 +639,7 @@ class ProfileManager:
             "automatic_bots": automatic_bots,
             "manual_bots": manual_bots,
             "profiles_with_sender_filter": profiles_with_sender_filter,
+            "profiles_with_responsable": profiles_with_responsable,
             "success_categories": success_categories
         }
 

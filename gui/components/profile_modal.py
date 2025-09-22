@@ -28,8 +28,9 @@ class ProfileModal:
         self.callback = callback
         self.edit_mode = profile is not None
 
-        # Variables para el nombre del perfil
+        # Variables para el nombre del perfil y responsable
         self.profile_name = tk.StringVar(value=profile.name if profile else "")
+        self.responsable = tk.StringVar(value=getattr(profile, "responsable", "") if profile else "")
 
         # Variables para los 3 criterios de búsqueda
         self.search_criteria_1 = tk.StringVar()
@@ -62,7 +63,7 @@ class ProfileModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Editar Perfil" if self.edit_mode else "Nuevo Perfil")
-        self.modal.geometry("520x760")
+        self.modal.geometry("520x800")
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
@@ -100,8 +101,23 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        name_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        name_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 15))
         name_entry.focus()
+
+        # Responsable del perfil
+        ttk.Label(
+            main_frame,
+            text="Responsable (opcional):",
+            font=("Arial", 10)
+        ).grid(row=3, column=0, sticky="w", pady=(0, 5))
+
+        responsable_entry = ttk.Entry(
+            main_frame,
+            textvariable=self.responsable,
+            width=50,
+            font=("Arial", 10)
+        )
+        responsable_entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 20))
 
         # Sección de criterios de búsqueda
         criteria_label = ttk.Label(
@@ -110,14 +126,14 @@ class ProfileModal:
             font=("Arial", 11, "bold"),
             foreground="navy"
         )
-        criteria_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        criteria_label.grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Criterio 1 (obligatorio)
         ttk.Label(
             main_frame,
             text="Criterio 1 (principal):",
             font=("Arial", 10, "bold")
-        ).grid(row=4, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=6, column=0, sticky="w", pady=(0, 5))
 
         criteria_1_entry = ttk.Entry(
             main_frame,
@@ -125,14 +141,14 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        criteria_1_entry.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        criteria_1_entry.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         # Criterio 2 (opcional)
         ttk.Label(
             main_frame,
             text="Criterio 2 (opcional):",
             font=("Arial", 10)
-        ).grid(row=6, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=8, column=0, sticky="w", pady=(0, 5))
 
         criteria_2_entry = ttk.Entry(
             main_frame,
@@ -140,14 +156,14 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        criteria_2_entry.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        criteria_2_entry.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         # Criterio 3 (opcional)
         ttk.Label(
             main_frame,
             text="Criterio 3 (opcional):",
             font=("Arial", 10)
-        ).grid(row=8, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=10, column=0, sticky="w", pady=(0, 5))
 
         criteria_3_entry = ttk.Entry(
             main_frame,
@@ -155,7 +171,7 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        criteria_3_entry.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        criteria_3_entry.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(0, 20))
 
         # Filtro de remitente
         sender_label = ttk.Label(
@@ -163,7 +179,7 @@ class ProfileModal:
             text="Filtrar por Remitente (opcional):",
             font=("Arial", 10, "bold")
         )
-        sender_label.grid(row=10, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        sender_label.grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 5))
 
         sender_entry = ttk.Entry(
             main_frame,
@@ -171,7 +187,7 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        sender_entry.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+        sender_entry.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(0, 5))
 
         sender_hint = ttk.Label(
             main_frame,
@@ -179,11 +195,11 @@ class ProfileModal:
             font=("Arial", 9),
             foreground="gray"
         )
-        sender_hint.grid(row=12, column=0, columnspan=2, sticky="w", pady=(0, 15))
+        sender_hint.grid(row=14, column=0, columnspan=2, sticky="w", pady=(0, 15))
 
         # Separador visual
         separator1 = ttk.Separator(main_frame, orient='horizontal')
-        separator1.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        separator1.grid(row=15, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
         # Sección: Tipo de Bot
         bot_type_label = ttk.Label(
@@ -220,7 +236,7 @@ class ProfileModal:
 
         # Separador visual
         separator2 = ttk.Separator(main_frame, orient='horizontal')
-        separator2.grid(row=16, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        separator2.grid(row=18, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
         # Sección de seguimiento óptimo
         optimal_label = ttk.Label(
@@ -229,7 +245,7 @@ class ProfileModal:
             font=("Arial", 11, "bold"),
             foreground="darkgreen"
         )
-        optimal_label.grid(row=17, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        optimal_label.grid(row=19, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Checkbox para habilitar seguimiento óptimo
         self.track_checkbox = ttk.Checkbutton(
@@ -238,14 +254,14 @@ class ProfileModal:
             variable=self.track_optimal,
             command=self._toggle_optimal_tracking
         )
-        self.track_checkbox.grid(row=18, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        self.track_checkbox.grid(row=20, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Campo para cantidad de ejecuciones óptimas
         ttk.Label(
             main_frame,
             text="Cantidad de Ejecuciones Óptimas:",
             font=("Arial", 10)
-        ).grid(row=19, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=21, column=0, sticky="w", pady=(0, 5))
 
         self.optimal_entry = ttk.Entry(
             main_frame,
@@ -253,11 +269,11 @@ class ProfileModal:
             width=50,
             font=("Arial", 10)
         )
-        self.optimal_entry.grid(row=20, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        self.optimal_entry.grid(row=22, column=0, columnspan=2, sticky="ew", pady=(0, 20))
 
         # Botones
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=21, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=23, column=0, columnspan=2, sticky="ew")
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
@@ -350,6 +366,7 @@ class ProfileModal:
                 return
 
         sender_filters = self.sender_filter.get().strip()
+        responsable = self.responsable.get().strip()
 
         try:
             if self.edit_mode:
@@ -358,6 +375,7 @@ class ProfileModal:
                     name,
                     criterios,
                     sender_filters=sender_filters,
+                    responsable=responsable,
                     optimal_executions=optimal_value,
                     track_optimal=self.track_optimal.get(),
                     bot_type=bot_type
@@ -375,12 +393,15 @@ class ProfileModal:
                     if updated_profile.has_sender_filters():
                         remitentes = ", ".join(updated_profile.sender_filters)
                         mensaje += f"\nRemitentes filtrados: {remitentes}"
+                    if updated_profile.has_responsable():
+                        mensaje += f"\nResponsable: {updated_profile.responsable}"
                     messagebox.showinfo("Éxito", mensaje)
             else:
                 new_profile = self.profile_manager.add_profile(
                     name,
                     criterios,
                     sender_filters=sender_filters,
+                    responsable=responsable,
                     bot_type=bot_type,
                     track_optimal=self.track_optimal.get(),
                     optimal_executions=optimal_value
@@ -397,6 +418,8 @@ class ProfileModal:
                     if new_profile.has_sender_filters():
                         remitentes = ", ".join(new_profile.sender_filters)
                         mensaje += f"\nRemitentes filtrados: {remitentes}"
+                    if new_profile.has_responsable():
+                        mensaje += f"\nResponsable: {new_profile.responsable}"
                     messagebox.showinfo("Éxito", mensaje)
 
             # Llamar al callback si existe
