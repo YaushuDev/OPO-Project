@@ -46,6 +46,9 @@ class ProfileModal:
         # Variables para el nombre del perfil y responsable
         self.profile_name = tk.StringVar(value=profile.name if profile else "")
         self.responsable = tk.StringVar(value=getattr(profile, "responsable", "") if profile else "")
+        self.alert_recipient = tk.StringVar(
+            value=getattr(profile, "alert_recipient", "") if profile else ""
+        )
         self.last_update_text = tk.StringVar(
             value=getattr(profile, "last_update_text", "") if profile else ""
         )
@@ -159,9 +162,23 @@ class ProfileModal:
 
         ttk.Label(
             info_frame,
-            text="Última Actualización (opcional):",
+            text="Destinatario de alerta (opcional):",
             font=("Arial", 10)
         ).grid(row=2, column=0, sticky="w", pady=(0, 12), padx=(0, 10))
+
+        alert_entry = ttk.Entry(
+            info_frame,
+            textvariable=self.alert_recipient,
+            width=40,
+            font=("Arial", 10)
+        )
+        alert_entry.grid(row=2, column=1, sticky="ew", pady=(0, 12))
+
+        ttk.Label(
+            info_frame,
+            text="Última Actualización (opcional):",
+            font=("Arial", 10)
+        ).grid(row=3, column=0, sticky="w", pady=(0, 12), padx=(0, 10))
 
         last_update_entry = ttk.Entry(
             info_frame,
@@ -169,13 +186,13 @@ class ProfileModal:
             width=40,
             font=("Arial", 10)
         )
-        last_update_entry.grid(row=2, column=1, sticky="ew", pady=(0, 12))
+        last_update_entry.grid(row=3, column=1, sticky="ew", pady=(0, 12))
 
         ttk.Label(
             info_frame,
             text="Fecha de entrega (opcional):",
             font=("Arial", 10)
-        ).grid(row=3, column=0, sticky="w", pady=(0, 0), padx=(0, 10))
+        ).grid(row=4, column=0, sticky="w", pady=(0, 0), padx=(0, 10))
 
         delivery_entry = ttk.Entry(
             info_frame,
@@ -183,7 +200,7 @@ class ProfileModal:
             width=40,
             font=("Arial", 10)
         )
-        delivery_entry.grid(row=3, column=1, sticky="ew", pady=(0, 0))
+        delivery_entry.grid(row=4, column=1, sticky="ew", pady=(0, 0))
 
         left_column.rowconfigure(1, weight=1)
 
@@ -447,8 +464,13 @@ class ProfileModal:
 
         sender_filters = self.sender_filter.get().strip()
         responsable = self.responsable.get().strip()
+        alert_recipient = self.alert_recipient.get().strip()
         last_update_text = self.last_update_text.get().strip()
         delivery_date_text = self.delivery_date_text.get().strip()
+
+        if alert_recipient and not self._validate_email(alert_recipient):
+            messagebox.showerror("Error", "El destinatario de alerta debe ser un correo válido")
+            return
 
         try:
             if self.edit_mode:
@@ -462,7 +484,8 @@ class ProfileModal:
                     track_optimal=self.track_optimal.get(),
                     bot_type=bot_type,
                     last_update_text=last_update_text,
-                    delivery_date_text=delivery_date_text
+                    delivery_date_text=delivery_date_text,
+                    alert_recipient=alert_recipient
                 )
 
                 if updated_profile:
@@ -483,6 +506,8 @@ class ProfileModal:
                         mensaje += f"\nÚltima actualización: {updated_profile.last_update_text}"
                     if updated_profile.has_delivery_date_text():
                         mensaje += f"\nFecha de entrega: {updated_profile.delivery_date_text}"
+                    if updated_profile.has_alert_recipient():
+                        mensaje += f"\nDestinatario alerta: {updated_profile.alert_recipient}"
                     messagebox.showinfo("Éxito", mensaje)
             else:
                 new_profile = self.profile_manager.add_profile(
@@ -494,7 +519,8 @@ class ProfileModal:
                     track_optimal=self.track_optimal.get(),
                     optimal_executions=optimal_value,
                     last_update_text=last_update_text,
-                    delivery_date_text=delivery_date_text
+                    delivery_date_text=delivery_date_text,
+                    alert_recipient=alert_recipient
                 )
                 if new_profile:
                     bot_type_display = self._get_bot_type_display(bot_type)
@@ -514,6 +540,8 @@ class ProfileModal:
                         mensaje += f"\nÚltima actualización: {new_profile.last_update_text}"
                     if new_profile.has_delivery_date_text():
                         mensaje += f"\nFecha de entrega: {new_profile.delivery_date_text}"
+                    if new_profile.has_alert_recipient():
+                        mensaje += f"\nDestinatario alerta: {new_profile.alert_recipient}"
                     messagebox.showinfo("Éxito", mensaje)
 
             # Llamar al callback si existe
@@ -525,3 +553,10 @@ class ProfileModal:
 
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar el perfil: {e}")
+
+    def _validate_email(self, email):
+        """Valida formato básico de email para el destinatario de alertas."""
+        if not email:
+            return True
+
+        return bool(SearchProfile.EMAIL_REGEX.match(email.strip()))

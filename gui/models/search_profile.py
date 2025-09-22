@@ -23,8 +23,10 @@ class SearchProfile:
     RESPONSABLE_MAX_LENGTH = 100
     TEXT_FIELD_MAX_LENGTH = 200
 
+    EMAIL_REGEX = re.compile(r"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$", re.IGNORECASE)
+
     def __init__(self, name, search_criteria, sender_filters=None, responsable=None, profile_id=None,
-                 last_update_text=None, delivery_date_text=None):
+                 last_update_text=None, delivery_date_text=None, alert_recipient=None):
         """
         Inicializa un perfil de búsqueda con validaciones mejoradas.
 
@@ -61,6 +63,10 @@ class SearchProfile:
 
         # Campo para tipo de bot
         self.bot_type = "manual"  # Valor por defecto
+
+        # Destinatario de alertas
+        self.alert_recipient = self._process_alert_recipient(alert_recipient)
+        self.last_alert_sent = None
 
         # Campos de metadatos (nuevos)
         self.created_at = datetime.now()
@@ -206,6 +212,24 @@ class SearchProfile:
 
         return cleaned
 
+    def _process_alert_recipient(self, recipient):
+        """Valida y normaliza el destinatario de alerta."""
+        if not recipient:
+            return ""
+
+        if not isinstance(recipient, str):
+            recipient = str(recipient)
+
+        cleaned = recipient.strip()
+
+        if not cleaned:
+            return ""
+
+        if not self.EMAIL_REGEX.match(cleaned):
+            raise ValueError("El destinatario de alerta debe ser un email válido")
+
+        return cleaned
+
     def _clean_criteria(self, criterio):
         """
         Limpia un criterio de búsqueda.
@@ -274,7 +298,9 @@ class SearchProfile:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "search_count": self.search_count,
             "last_update_text": self.last_update_text,
-            "delivery_date_text": self.delivery_date_text
+            "delivery_date_text": self.delivery_date_text,
+            "alert_recipient": self.alert_recipient,
+            "last_alert_sent": self.last_alert_sent.isoformat() if self.last_alert_sent else None
         }
 
     @classmethod
@@ -320,7 +346,8 @@ class SearchProfile:
                 responsable=data.get("responsable"),
                 profile_id=data.get("profile_id"),
                 last_update_text=last_update_text,
-                delivery_date_text=delivery_date_text
+                delivery_date_text=delivery_date_text,
+                alert_recipient=data.get("alert_recipient")
             )
 
             profile.found_emails = max(0, int(data.get("found_emails", 0)))
@@ -366,6 +393,20 @@ class SearchProfile:
                 getattr(profile, "delivery_date_text", "")
             )
 
+            # Cargar destinatario de alertas con validación
+            try:
+                profile.alert_recipient = profile._process_alert_recipient(
+                    data.get("alert_recipient", getattr(profile, "alert_recipient", ""))
+                )
+            except ValueError:
+                profile.alert_recipient = ""
+
+            if data.get("last_alert_sent"):
+                try:
+                    profile.last_alert_sent = datetime.fromisoformat(data["last_alert_sent"])
+                except (ValueError, TypeError):
+                    profile.last_alert_sent = None
+
             return profile
 
         except Exception as e:
@@ -373,7 +414,7 @@ class SearchProfile:
 
     def update(self, name, search_criteria, optimal_executions=None, track_optimal=None,
                bot_type=None, sender_filters=None, responsable=None,
-               last_update_text=None, delivery_date_text=None):
+               last_update_text=None, delivery_date_text=None, alert_recipient=None):
         """
         Actualiza los datos del perfil con validaciones mejoradas.
 
@@ -387,6 +428,7 @@ class SearchProfile:
             responsable (str, optional): Responsable del perfil
             last_update_text (str, optional): Texto manual de última actualización
             delivery_date_text (str, optional): Texto manual de fecha de entrega
+            alert_recipient (str, optional): Email para alertas de rendimiento
         """
         # Actualizar nombre con validación
         self.name = self._validate_name(name)
@@ -412,6 +454,15 @@ class SearchProfile:
 
         if track_optimal is not None:
             self.track_optimal = bool(track_optimal)
+
+        if alert_recipient is not None:
+            try:
+                self.alert_recipient = self._process_alert_recipient(alert_recipient)
+            except ValueError:
+                self.alert_recipient = ""
+
+            if not self.alert_recipient:
+                self.last_alert_sent = None
 
         # Actualizar tipo de bot con validación
         if bot_type is not None and bot_type in self.BOT_TYPES:
@@ -445,6 +496,14 @@ class SearchProfile:
     def get_responsable_display(self):
         """Retorna una representación legible del responsable."""
         return self.responsable if self.responsable else "➖ Sin responsable"
+
+    def has_alert_recipient(self):
+        """Indica si el perfil tiene configurado un destinatario de alerta."""
+        return bool(self.alert_recipient)
+
+    def get_alert_recipient_display(self):
+        """Retorna una representación legible del destinatario de alerta."""
+        return self.alert_recipient if self.alert_recipient else "➖ Sin destinatario"
 
     def has_last_update_text(self):
         """Indica si el perfil tiene texto de última actualización."""
@@ -676,23 +735,46 @@ class SearchProfile:
             "sender_filters": self.sender_filters.copy(),
             "responsable": self.responsable,
             "last_update_text": self.last_update_text,
-            "delivery_date_text": self.delivery_date_text
+            "delivery_date_text": self.delivery_date_text,
+            "alert_recipient": self.alert_recipient,
+            "last_alert_sent": self.last_alert_sent.isoformat() if self.last_alert_sent else None
         }
+
+    def should_trigger_alert(self, threshold=90):
+        """Determina si el perfil debe generar una alerta de rendimiento."""
+        if not self.track_optimal or not self.alert_recipient:
+            return False
+
+        percentage = self.get_success_percentage()
+        if percentage is None or percentage >= threshold:
+            return False
+
+        if self.last_alert_sent and self.last_search:
+            return self.last_alert_sent < self.last_search
+
+        return True
+
+    def record_alert_sent(self):
+        """Registra el envío de una alerta para evitar duplicados consecutivos."""
+        self.last_alert_sent = datetime.now()
+        self.updated_at = datetime.now()
 
     def __str__(self):
         """Representación string del perfil."""
         responsable_text = f", responsable='{self.responsable}'" if self.responsable else ""
         last_update_text = f", last_update='{self.last_update_text}'" if self.last_update_text else ""
         delivery_text = f", delivery='{self.delivery_date_text}'" if self.delivery_date_text else ""
+        alert_text = f", alert='{self.alert_recipient}'" if self.alert_recipient else ""
         return (f"SearchProfile(name='{self.name}', criteria={len(self.search_criteria)}, "
                 f"senders={len(self.sender_filters)}, type='{self.bot_type}'"
-                f"{responsable_text}{last_update_text}{delivery_text})")
+                f"{responsable_text}{last_update_text}{delivery_text}{alert_text})")
 
     def __repr__(self):
         """Representación técnica del perfil."""
         responsable_text = f", responsable='{self.responsable}'" if self.responsable else ""
         last_update_text = f", last_update='{self.last_update_text}'" if self.last_update_text else ""
         delivery_text = f", delivery='{self.delivery_date_text}'" if self.delivery_date_text else ""
+        alert_text = f", alert='{self.alert_recipient}'" if self.alert_recipient else ""
         return (f"SearchProfile(id='{self.profile_id[:8]}...', name='{self.name}', "
                 f"criteria={len(self.search_criteria)}, senders={len(self.sender_filters)}, "
-                f"found={self.found_emails}{responsable_text}{last_update_text}{delivery_text})")
+                f"found={self.found_emails}{responsable_text}{last_update_text}{delivery_text}{alert_text})")

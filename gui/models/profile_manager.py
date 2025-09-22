@@ -144,6 +144,14 @@ class ProfileManager:
             except ValueError:
                 profile.delivery_date_text = ""
 
+            # Normalizar destinatario de alertas si existe
+            try:
+                profile.alert_recipient = profile._process_alert_recipient(
+                    getattr(profile, "alert_recipient", "")
+                )
+            except ValueError:
+                profile.alert_recipient = ""
+
             # Verificar que el tipo de bot sea válido
             if profile.bot_type not in SearchProfile.BOT_TYPES:
                 profile.bot_type = "manual"  # Corrección automática
@@ -314,7 +322,7 @@ class ProfileManager:
 
     def add_profile(self, name, search_criteria, sender_filters=None, responsable=None,
                     bot_type=None, track_optimal=None, optimal_executions=None,
-                    last_update_text=None, delivery_date_text=None):
+                    last_update_text=None, delivery_date_text=None, alert_recipient=None):
         """
         Añade un nuevo perfil con validaciones robustas.
 
@@ -328,6 +336,8 @@ class ProfileManager:
             optimal_executions (int, optional): Cantidad esperada de ejecuciones óptimas
             last_update_text (str, optional): Texto manual de última actualización
             delivery_date_text (str, optional): Texto manual de fecha de entrega
+            alert_recipient (str, optional): Email para alertas de seguimiento
+            alert_recipient (str, optional): Email para alertas de seguimiento
 
         Returns:
             SearchProfile: Perfil creado o None si hubo error
@@ -345,7 +355,8 @@ class ProfileManager:
                 sender_filters=sender_filters,
                 responsable=responsable,
                 last_update_text=last_update_text,
-                delivery_date_text=delivery_date_text
+                delivery_date_text=delivery_date_text,
+                alert_recipient=alert_recipient
             )
 
             # Configurar tipo de bot si se proporciona
@@ -378,9 +389,10 @@ class ProfileManager:
                     if profile.has_last_update_text() else ""
                 delivery_info = f", fecha de entrega: {profile.delivery_date_text}" \
                     if profile.has_delivery_date_text() else ""
+                alert_info = f", alerta: {profile.alert_recipient}" if profile.has_alert_recipient() else ""
                 self._log(
                     f"✅ Perfil creado: '{name}' con {criterios_count} criterio(s)"
-                    f"{sender_info}{responsable_info}{last_update_info}{delivery_info}"
+                    f"{sender_info}{responsable_info}{last_update_info}{delivery_info}{alert_info}"
                 )
                 return profile
             else:
@@ -413,7 +425,8 @@ class ProfileManager:
 
     def update_profile(self, profile_id, name, search_criteria, sender_filters=None,
                        responsable=None, optimal_executions=None, track_optimal=None,
-                       bot_type=None, last_update_text=None, delivery_date_text=None):
+                       bot_type=None, last_update_text=None, delivery_date_text=None,
+                       alert_recipient=None):
         """
         Actualiza un perfil existente con validaciones.
 
@@ -428,6 +441,7 @@ class ProfileManager:
             bot_type (str, optional): Tipo de bot
             last_update_text (str, optional): Texto manual de última actualización
             delivery_date_text (str, optional): Texto manual de fecha de entrega
+            alert_recipient (str, optional): Email para alertas de seguimiento
 
         Returns:
             SearchProfile: Perfil actualizado o None si no existe o hay error
@@ -453,6 +467,8 @@ class ProfileManager:
             original_responsable = profile.responsable
             original_last_update = profile.last_update_text
             original_delivery = profile.delivery_date_text
+            original_alert = profile.alert_recipient
+            original_last_alert = profile.last_alert_sent
 
             # Actualizar perfil (las validaciones están en SearchProfile.update)
             profile.update(
@@ -464,7 +480,8 @@ class ProfileManager:
                 sender_filters,
                 responsable=responsable,
                 last_update_text=last_update_text,
-                delivery_date_text=delivery_date_text
+                delivery_date_text=delivery_date_text,
+                alert_recipient=alert_recipient
             )
 
             # Validación adicional
@@ -479,6 +496,8 @@ class ProfileManager:
                 profile.responsable = original_responsable
                 profile.last_update_text = original_last_update
                 profile.delivery_date_text = original_delivery
+                profile.alert_recipient = original_alert
+                profile.last_alert_sent = original_last_alert
                 self._log(f"❌ El perfil actualizado '{name}' no pasó las validaciones")
                 return None
 
@@ -493,9 +512,10 @@ class ProfileManager:
                     if profile.has_last_update_text() else ""
                 delivery_info = f", fecha de entrega: {profile.delivery_date_text}" \
                     if profile.has_delivery_date_text() else ""
+                alert_info = f", alerta: {profile.alert_recipient}" if profile.has_alert_recipient() else ""
                 self._log(
                     f"✅ Perfil actualizado: '{name}' con {criterios_count} criterio(s)"
-                    f"{sender_info}{responsable_info}{last_update_info}{delivery_info}"
+                    f"{sender_info}{responsable_info}{last_update_info}{delivery_info}{alert_info}"
                 )
                 return profile
             else:
@@ -509,6 +529,8 @@ class ProfileManager:
                 profile.responsable = original_responsable
                 profile.last_update_text = original_last_update
                 profile.delivery_date_text = original_delivery
+                profile.alert_recipient = original_alert
+                profile.last_alert_sent = original_last_alert
                 self._log(f"❌ Error al guardar cambios del perfil '{name}'")
                 return None
 
