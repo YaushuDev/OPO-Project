@@ -2,11 +2,26 @@
 """
 Modal para crear o editar perfiles de búsqueda.
 Permite configurar nombre, hasta 3 criterios de búsqueda diferentes,
-configuración de seguimiento de ejecuciones óptimas y tipo de bot (Automático/Manual).
+configuración de seguimiento de ejecuciones óptimas y tipo de bot (Automático/Manual/Offline).
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+
+from gui.models.search_profile import SearchProfile
+
+
+BOT_TYPE_DISPLAY = {
+    "automatico": "Automático",
+    "manual": "Manual",
+    "offline": "Offline"
+}
+
+BOT_TYPE_RADIO_TEXT = {
+    "automatico": "🤖 Bot Automático",
+    "manual": "👤 Bot Manual",
+    "offline": "📴 Bot Offline"
+}
 
 
 class ProfileModal:
@@ -208,31 +223,24 @@ class ProfileModal:
             font=("Arial", 11, "bold"),
             foreground="purple"
         )
-        bot_type_label.grid(row=14, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        bot_type_label.grid(row=16, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         # Frame para radio buttons del tipo de bot
         bot_type_frame = ttk.Frame(main_frame)
-        bot_type_frame.grid(row=15, column=0, columnspan=2, sticky="ew", pady=(0, 15))
-        bot_type_frame.columnconfigure(0, weight=1)
-        bot_type_frame.columnconfigure(1, weight=1)
+        bot_type_frame.grid(row=17, column=0, columnspan=2, sticky="ew", pady=(0, 15))
 
-        # Radio button para Bot Automático
-        self.automatic_radio = ttk.Radiobutton(
-            bot_type_frame,
-            text="🤖 Bot Automático",
-            variable=self.bot_type,
-            value="automatico"
-        )
-        self.automatic_radio.grid(row=0, column=0, sticky="w", padx=(0, 20))
+        for idx in range(len(SearchProfile.BOT_TYPES)):
+            bot_type_frame.columnconfigure(idx, weight=1)
 
-        # Radio button para Bot Manual
-        self.manual_radio = ttk.Radiobutton(
-            bot_type_frame,
-            text="👤 Bot Manual",
-            variable=self.bot_type,
-            value="manual"
-        )
-        self.manual_radio.grid(row=0, column=1, sticky="w")
+        for idx, bot_type_value in enumerate(SearchProfile.BOT_TYPES):
+            radio = ttk.Radiobutton(
+                bot_type_frame,
+                text=BOT_TYPE_RADIO_TEXT.get(bot_type_value, bot_type_value.title()),
+                variable=self.bot_type,
+                value=bot_type_value
+            )
+            padx = (0, 20) if idx < len(SearchProfile.BOT_TYPES) - 1 else (0, 0)
+            radio.grid(row=0, column=idx, sticky="w", padx=padx)
 
         # Separador visual
         separator2 = ttk.Separator(main_frame, orient='horizontal')
@@ -314,6 +322,10 @@ class ProfileModal:
             self.optimal_entry.configure(state="disabled")
             self.optimal_executions.set("")
 
+    def _get_bot_type_display(self, bot_type):
+        """Retorna el nombre formateado del tipo de bot."""
+        return BOT_TYPE_DISPLAY.get(bot_type, "No definido")
+
     def _save_profile(self):
         """Guarda o actualiza el perfil con los múltiples criterios, seguimiento óptimo y tipo de bot."""
         name = self.profile_name.get().strip()
@@ -343,8 +355,9 @@ class ProfileModal:
             return
 
         # Validar que se haya seleccionado un tipo de bot
-        if not bot_type or bot_type not in ["automatico", "manual"]:
-            messagebox.showerror("Error", "Debe seleccionar un tipo de bot (Automático o Manual)")
+        if not bot_type or bot_type not in SearchProfile.BOT_TYPES:
+            allowed_types = ", ".join(BOT_TYPE_DISPLAY[bt] for bt in SearchProfile.BOT_TYPES)
+            messagebox.showerror("Error", f"Debe seleccionar un tipo de bot ({allowed_types})")
             return
 
         # Validar seguimiento óptimo si está habilitado
@@ -382,7 +395,7 @@ class ProfileModal:
                 )
 
                 if updated_profile:
-                    bot_type_display = "Automático" if bot_type == "automatico" else "Manual"
+                    bot_type_display = self._get_bot_type_display(bot_type)
                     mensaje = (
                         "Perfil actualizado correctamente\n\n"
                         f"Criterios configurados: {len(criterios)}\n"
@@ -407,7 +420,7 @@ class ProfileModal:
                     optimal_executions=optimal_value
                 )
                 if new_profile:
-                    bot_type_display = "Automático" if bot_type == "automatico" else "Manual"
+                    bot_type_display = self._get_bot_type_display(bot_type)
                     mensaje = (
                         "Perfil creado correctamente\n\n"
                         f"Criterios configurados: {len(criterios)}\n"

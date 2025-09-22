@@ -2,7 +2,7 @@
 """
 Modelo optimizado para representar un perfil de búsqueda de correos.
 Contiene información sobre múltiples criterios de búsqueda (hasta 3), resultados,
-seguimiento de ejecuciones óptimas con porcentaje de éxito y tipo de bot (Automático/Manual).
+seguimiento de ejecuciones óptimas con porcentaje de éxito y tipo de bot (Automático/Manual/Offline).
 Incluye validaciones mejoradas y métodos de utilidad optimizados.
 """
 
@@ -19,7 +19,7 @@ class SearchProfile:
     MAX_CRITERIA = 3
     MIN_CRITERIA_LENGTH = 2
     MAX_CRITERIA_LENGTH = 100
-    BOT_TYPES = ["automatico", "manual"]
+    BOT_TYPES = ["automatico", "manual", "offline"]
     RESPONSABLE_MAX_LENGTH = 100
 
     def __init__(self, name, search_criteria, sender_filters=None, responsable=None, profile_id=None):
@@ -340,7 +340,7 @@ class SearchProfile:
             search_criteria (str or list): Nuevo(s) criterio(s) de búsqueda
             optimal_executions (int, optional): Cantidad de ejecuciones óptimas
             track_optimal (bool, optional): Habilitar seguimiento óptimo
-            bot_type (str, optional): Tipo de bot ("automatico" o "manual")
+            bot_type (str, optional): Tipo de bot ("automatico", "manual" u "offline")
             sender_filters (str or list, optional): Remitentes filtrados
             responsable (str, optional): Responsable del perfil
         """
@@ -545,6 +545,8 @@ class SearchProfile:
             return "🤖 Automático"
         elif self.bot_type == "manual":
             return "👤 Manual"
+        elif self.bot_type == "offline":
+            return "📴 Offline"
         else:
             return "❓ No definido"
 
@@ -565,6 +567,15 @@ class SearchProfile:
             bool: True si es manual
         """
         return self.bot_type == "manual"
+
+    def is_bot_offline(self):
+        """
+        Verifica si el bot es de tipo offline.
+
+        Returns:
+            bool: True si es offline
+        """
+        return self.bot_type == "offline"
 
     def get_age_days(self):
         """

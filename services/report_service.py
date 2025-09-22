@@ -211,6 +211,7 @@ class ReportService:
                 optimal_col = header_map.get("cantidad de ejecuciones recomendadas")
                 automatic_col = header_map.get("bot automático")
                 manual_col = header_map.get("bot manual")
+                offline_col = header_map.get("bot offline")
                 last_search_col = header_map.get("última búsqueda")
                 responsable_col = header_map.get("responsable")
 
@@ -227,6 +228,7 @@ class ReportService:
                     optimal_cell = ws.cell(row=row, column=optimal_col).value
                     is_automatic = bool(automatic_col and ws.cell(row=row, column=automatic_col).value == "X")
                     is_manual = bool(manual_col and ws.cell(row=row, column=manual_col).value == "X")
+                    is_offline = bool(offline_col and ws.cell(row=row, column=offline_col).value == "X")
                     last_search = ws.cell(row=row, column=last_search_col).value if last_search_col else None
 
                     # Procesar ejecuciones óptimas
@@ -241,11 +243,22 @@ class ReportService:
                             'has_tracking': has_tracking,
                             'is_automatic': is_automatic,
                             'is_manual': is_manual,
+                            'is_offline': is_offline,
                             'last_search': last_search,
                             'responsable': responsable
                         }
-                    elif responsable and not aggregated_data[profile_name].get('responsable'):
-                        aggregated_data[profile_name]['responsable'] = responsable
+                    else:
+                        if responsable and not aggregated_data[profile_name].get('responsable'):
+                            aggregated_data[profile_name]['responsable'] = responsable
+                        aggregated_data[profile_name]['is_automatic'] = (
+                            aggregated_data[profile_name]['is_automatic'] or is_automatic
+                        )
+                        aggregated_data[profile_name]['is_manual'] = (
+                            aggregated_data[profile_name]['is_manual'] or is_manual
+                        )
+                        aggregated_data[profile_name]['is_offline'] = (
+                            aggregated_data[profile_name].get('is_offline', False) or is_offline
+                        )
 
                     # Acumular ejecuciones
                     aggregated_data[profile_name]['executions'] += executions
@@ -299,6 +312,7 @@ class ReportService:
                 optimal_col = header_map.get("cantidad de ejecuciones recomendadas")
                 automatic_col = header_map.get("bot automático")
                 manual_col = header_map.get("bot manual")
+                offline_col = header_map.get("bot offline")
                 last_search_col = header_map.get("última búsqueda")
                 responsable_col = header_map.get("responsable")
 
@@ -315,6 +329,7 @@ class ReportService:
                     optimal_cell = ws.cell(row=row, column=optimal_col).value
                     is_automatic = bool(automatic_col and ws.cell(row=row, column=automatic_col).value == "X")
                     is_manual = bool(manual_col and ws.cell(row=row, column=manual_col).value == "X")
+                    is_offline = bool(offline_col and ws.cell(row=row, column=offline_col).value == "X")
                     last_search = ws.cell(row=row, column=last_search_col).value if last_search_col else None
 
                     # Procesar ejecuciones óptimas
@@ -329,11 +344,22 @@ class ReportService:
                             'has_tracking': has_tracking,
                             'is_automatic': is_automatic,
                             'is_manual': is_manual,
+                            'is_offline': is_offline,
                             'last_search': last_search,
                             'responsable': responsable
                         }
-                    elif responsable and not aggregated_data[profile_name].get('responsable'):
-                        aggregated_data[profile_name]['responsable'] = responsable
+                    else:
+                        if responsable and not aggregated_data[profile_name].get('responsable'):
+                            aggregated_data[profile_name]['responsable'] = responsable
+                        aggregated_data[profile_name]['is_automatic'] = (
+                            aggregated_data[profile_name]['is_automatic'] or is_automatic
+                        )
+                        aggregated_data[profile_name]['is_manual'] = (
+                            aggregated_data[profile_name]['is_manual'] or is_manual
+                        )
+                        aggregated_data[profile_name]['is_offline'] = (
+                            aggregated_data[profile_name].get('is_offline', False) or is_offline
+                        )
 
                     # Acumular ejecuciones
                     aggregated_data[profile_name]['executions'] += executions
@@ -469,8 +495,19 @@ class ReportService:
             cell.alignment = Alignment(horizontal="center")
             cell.border = styles['border']
 
-            # Última Búsqueda
+            # Bot Offline
             cell = worksheet.cell(row=row_num, column=8)
+            if data.get('is_offline'):
+                cell.value = "X"
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Última Búsqueda
+            cell = worksheet.cell(row=row_num, column=9)
             cell.value = data['last_search'] if data['last_search'] else "Nunca"
             cell.alignment = Alignment(horizontal="center")
             cell.border = styles['border']
@@ -545,8 +582,19 @@ class ReportService:
             cell.alignment = Alignment(horizontal="center")
             cell.border = styles['border']
 
-            # Última Búsqueda
+            # Bot Offline
             cell = worksheet.cell(row=row_num, column=8)
+            if data.get('is_offline'):
+                cell.value = "X"
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Última Búsqueda
+            cell = worksheet.cell(row=row_num, column=9)
             cell.value = data['last_search'] if data['last_search'] else "Nunca"
             cell.alignment = Alignment(horizontal="center")
             cell.border = styles['border']
@@ -576,7 +624,7 @@ class ReportService:
 
     def _add_daily_header(self, worksheet, total_bots, styles):
         """Agrega el encabezado para reportes diarios."""
-        worksheet.merge_cells('A1:H1')
+        worksheet.merge_cells('A1:I1')
         title_cell = worksheet['A1']
         title_cell.value = "Reporte de Ejecuciones - Registro Diario"
         title_cell.font = styles['title_font']
@@ -584,17 +632,17 @@ class ReportService:
         title_cell.alignment = styles['title_alignment']
         title_cell.border = styles['border']
 
-        for col in range(1, 9):
+        for col in range(1, 10):
             worksheet.cell(row=1, column=col).border = styles['border']
 
-        worksheet.merge_cells('A2:H2')
+        worksheet.merge_cells('A2:I2')
         subtitle_cell = worksheet['A2']
         current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         subtitle_cell.value = f"Generado el {current_date} - Total de Bots: {total_bots}"
         subtitle_cell.font = styles['subtitle_font']
         subtitle_cell.alignment = styles['subtitle_alignment']
 
-        for col in range(1, 9):
+        for col in range(1, 10):
             worksheet.cell(row=2, column=col).border = styles['border']
 
         worksheet.row_dimensions[3].height = 10
@@ -603,7 +651,7 @@ class ReportService:
         """Agrega el encabezado para reportes semanales."""
         week_number = start_date.isocalendar()[1]
 
-        worksheet.merge_cells('A1:H1')
+        worksheet.merge_cells('A1:I1')
         title_cell = worksheet['A1']
         title_cell.value = f"Reporte de Ejecuciones - Resumen Semanal (Semana {week_number})"
         title_cell.font = styles['title_font']
@@ -611,10 +659,10 @@ class ReportService:
         title_cell.alignment = styles['title_alignment']
         title_cell.border = styles['border']
 
-        for col in range(1, 9):
+        for col in range(1, 10):
             worksheet.cell(row=1, column=col).border = styles['border']
 
-        worksheet.merge_cells('A2:H2')
+        worksheet.merge_cells('A2:I2')
         subtitle_cell = worksheet['A2']
         current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         period_text = f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
@@ -622,7 +670,7 @@ class ReportService:
         subtitle_cell.font = styles['subtitle_font']
         subtitle_cell.alignment = styles['subtitle_alignment']
 
-        for col in range(1, 9):
+        for col in range(1, 10):
             worksheet.cell(row=2, column=col).border = styles['border']
 
         worksheet.row_dimensions[3].height = 10
@@ -632,7 +680,7 @@ class ReportService:
         month_name = start_date.strftime("%B").capitalize()
         year = start_date.year
 
-        worksheet.merge_cells('A1:H1')
+        worksheet.merge_cells('A1:I1')
         title_cell = worksheet['A1']
         title_cell.value = f"Reporte de Ejecuciones - Resumen Mensual ({month_name} {year})"
         title_cell.font = styles['title_font']
@@ -640,10 +688,10 @@ class ReportService:
         title_cell.alignment = styles['title_alignment']
         title_cell.border = styles['border']
 
-        for col in range(1, 9):
+        for col in range(1, 10):
             worksheet.cell(row=1, column=col).border = styles['border']
 
-        worksheet.merge_cells('A2:H2')
+        worksheet.merge_cells('A2:I2')
         subtitle_cell = worksheet['A2']
         current_date = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         period_text = f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
@@ -651,7 +699,7 @@ class ReportService:
         subtitle_cell.font = styles['subtitle_font']
         subtitle_cell.alignment = styles['subtitle_alignment']
 
-        for col in range(1, 9):
+        for col in range(1, 10):
             worksheet.cell(row=2, column=col).border = styles['border']
 
         worksheet.row_dimensions[3].height = 10
@@ -666,6 +714,7 @@ class ReportService:
             "Porcentaje de Éxito",
             "Bot Automático",
             "Bot Manual",
+            "Bot Offline",
             "Última Búsqueda"
         ]
 
@@ -740,8 +789,19 @@ class ReportService:
             cell.alignment = Alignment(horizontal="center")
             cell.border = styles['border']
 
-            # Última Búsqueda
+            # Bot Offline
             cell = worksheet.cell(row=row_num, column=8)
+            if hasattr(profile, "is_bot_offline") and profile.is_bot_offline():
+                cell.value = "X"
+                cell.fill = styles['bot_fill']
+                cell.font = styles['bot_font']
+            else:
+                cell.value = ""
+            cell.alignment = Alignment(horizontal="center")
+            cell.border = styles['border']
+
+            # Última Búsqueda
+            cell = worksheet.cell(row=row_num, column=9)
             if profile.last_search:
                 cell.value = profile.last_search.strftime("%d/%m/%Y %H:%M:%S")
             else:
@@ -759,7 +819,8 @@ class ReportService:
             5: 18,
             6: 15,
             7: 12,
-            8: 22
+            8: 12,
+            9: 22
         }
 
         for col_num, width in column_widths.items():
