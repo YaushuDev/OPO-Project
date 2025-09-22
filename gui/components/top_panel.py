@@ -155,6 +155,8 @@ class TopPanel:
             columns=(
                 "name",
                 "responsable",
+                "last_update",
+                "delivery_date",
                 "bot_type",
                 "criteria",
                 "executions",
@@ -170,6 +172,8 @@ class TopPanel:
         # Definir columnas
         self.profiles_tree.heading("name", text="Nombre del Perfil")
         self.profiles_tree.heading("responsable", text="Responsable")
+        self.profiles_tree.heading("last_update", text="Última Actualización")
+        self.profiles_tree.heading("delivery_date", text="Fecha de entrega")
         self.profiles_tree.heading("bot_type", text="Tipo de Bot")
         self.profiles_tree.heading("criteria", text="Criterios de Búsqueda")
         self.profiles_tree.heading("executions", text="Cantidad de ejecuciones")
@@ -181,6 +185,8 @@ class TopPanel:
         # Configurar ancho de columnas
         self.profiles_tree.column("name", width=110, minwidth=90)
         self.profiles_tree.column("responsable", width=120, minwidth=100)
+        self.profiles_tree.column("last_update", width=130, minwidth=110, anchor="center")
+        self.profiles_tree.column("delivery_date", width=130, minwidth=110, anchor="center")
         self.profiles_tree.column("bot_type", width=90, minwidth=80, anchor="center")
         self.profiles_tree.column("criteria", width=200, minwidth=180)
         self.profiles_tree.column("executions", width=100, minwidth=80, anchor="center")
@@ -250,11 +256,15 @@ class TopPanel:
                 success_display = profile.get_success_display()
                 bot_type_display = profile.get_bot_type_display()
                 responsable_display = profile.responsable if profile.responsable else "—"
+                last_update_display = profile.get_last_update_display()
+                delivery_display = profile.get_delivery_date_display()
 
                 # Añadir fila a la tabla
                 item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
                     profile.name,
                     responsable_display,
+                    last_update_display,
+                    delivery_display,
                     bot_type_display,
                     criteria_display,
                     profile.found_emails,
@@ -309,7 +319,7 @@ class TopPanel:
                 return
 
             # Si es la columna de acciones
-            if column == "#9":
+            if column == "#11":
                 profile_id = self.profiles_tree.item(item, "tags")[0]
                 profile = self.profile_manager.get_profile_by_id(profile_id)
 

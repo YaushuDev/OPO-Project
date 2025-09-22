@@ -21,8 +21,10 @@ class SearchProfile:
     MAX_CRITERIA_LENGTH = 100
     BOT_TYPES = ["automatico", "manual", "offline"]
     RESPONSABLE_MAX_LENGTH = 100
+    TEXT_FIELD_MAX_LENGTH = 200
 
-    def __init__(self, name, search_criteria, sender_filters=None, responsable=None, profile_id=None):
+    def __init__(self, name, search_criteria, sender_filters=None, responsable=None, profile_id=None,
+                 last_update_text=None, delivery_date_text=None):
         """
         Inicializa un perfil de búsqueda con validaciones mejoradas.
 
@@ -44,6 +46,10 @@ class SearchProfile:
 
         # Responsable opcional del perfil
         self.responsable = self._process_responsable(responsable)
+
+        # Campos de seguimiento manual adicionales
+        self.last_update_text = self._process_optional_text(last_update_text)
+        self.delivery_date_text = self._process_optional_text(delivery_date_text)
 
         # Campos originales
         self.found_emails = 0  # Cantidad de ejecuciones encontradas
@@ -185,6 +191,21 @@ class SearchProfile:
 
         return cleaned
 
+    def _process_optional_text(self, value):
+        """Normaliza campos de texto opcionales."""
+        if value is None:
+            return ""
+
+        if not isinstance(value, str):
+            value = str(value)
+
+        cleaned = value.strip()
+
+        if len(cleaned) > self.TEXT_FIELD_MAX_LENGTH:
+            cleaned = cleaned[:self.TEXT_FIELD_MAX_LENGTH]
+
+        return cleaned
+
     def _clean_criteria(self, criterio):
         """
         Limpia un criterio de búsqueda.
@@ -251,7 +272,9 @@ class SearchProfile:
             # Metadatos
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "search_count": self.search_count
+            "search_count": self.search_count,
+            "last_update_text": self.last_update_text,
+            "delivery_date_text": self.delivery_date_text
         }
 
     @classmethod
@@ -282,12 +305,22 @@ class SearchProfile:
             if not sender_filters and data.get("sender_filter"):
                 sender_filters = data.get("sender_filter")
 
+            last_update_text = data.get("last_update_text")
+            if not last_update_text:
+                last_update_text = data.get("ultima_actualizacion")
+
+            delivery_date_text = data.get("delivery_date_text")
+            if not delivery_date_text:
+                delivery_date_text = data.get("fecha_de_entrega") or data.get("fecha_entrega")
+
             profile = cls(
                 name=data.get("name", "Perfil sin nombre"),
                 search_criteria=search_criteria,
                 sender_filters=sender_filters,
                 responsable=data.get("responsable"),
-                profile_id=data.get("profile_id")
+                profile_id=data.get("profile_id"),
+                last_update_text=last_update_text,
+                delivery_date_text=delivery_date_text
             )
 
             profile.found_emails = max(0, int(data.get("found_emails", 0)))
@@ -325,13 +358,22 @@ class SearchProfile:
 
             profile.search_count = max(0, int(data.get("search_count", 0)))
 
+            # Asegurar normalización de campos de texto opcionales
+            profile.last_update_text = profile._process_optional_text(
+                getattr(profile, "last_update_text", "")
+            )
+            profile.delivery_date_text = profile._process_optional_text(
+                getattr(profile, "delivery_date_text", "")
+            )
+
             return profile
 
         except Exception as e:
             raise ValueError(f"Error al crear perfil desde datos: {e}")
 
     def update(self, name, search_criteria, optimal_executions=None, track_optimal=None,
-               bot_type=None, sender_filters=None, responsable=None):
+               bot_type=None, sender_filters=None, responsable=None,
+               last_update_text=None, delivery_date_text=None):
         """
         Actualiza los datos del perfil con validaciones mejoradas.
 
@@ -343,6 +385,8 @@ class SearchProfile:
             bot_type (str, optional): Tipo de bot ("automatico", "manual" u "offline")
             sender_filters (str or list, optional): Remitentes filtrados
             responsable (str, optional): Responsable del perfil
+            last_update_text (str, optional): Texto manual de última actualización
+            delivery_date_text (str, optional): Texto manual de fecha de entrega
         """
         # Actualizar nombre con validación
         self.name = self._validate_name(name)
@@ -355,6 +399,12 @@ class SearchProfile:
 
         if responsable is not None:
             self.responsable = self._process_responsable(responsable)
+
+        if last_update_text is not None:
+            self.last_update_text = self._process_optional_text(last_update_text)
+
+        if delivery_date_text is not None:
+            self.delivery_date_text = self._process_optional_text(delivery_date_text)
 
         # Actualizar campos de seguimiento óptimo si se proporcionan
         if optimal_executions is not None:
@@ -395,6 +445,22 @@ class SearchProfile:
     def get_responsable_display(self):
         """Retorna una representación legible del responsable."""
         return self.responsable if self.responsable else "➖ Sin responsable"
+
+    def has_last_update_text(self):
+        """Indica si el perfil tiene texto de última actualización."""
+        return bool(self.last_update_text)
+
+    def get_last_update_display(self):
+        """Retorna una representación legible de la última actualización manual."""
+        return self.last_update_text if self.last_update_text else "—"
+
+    def has_delivery_date_text(self):
+        """Indica si el perfil tiene texto de fecha de entrega."""
+        return bool(self.delivery_date_text)
+
+    def get_delivery_date_display(self):
+        """Retorna una representación legible de la fecha de entrega manual."""
+        return self.delivery_date_text if self.delivery_date_text else "—"
 
     def update_search_results(self, found_emails):
         """
@@ -608,18 +674,25 @@ class SearchProfile:
             "has_optimal_tracking": self.track_optimal,
             "last_search_days_ago": (datetime.now() - self.last_search).days if self.last_search else None,
             "sender_filters": self.sender_filters.copy(),
-            "responsable": self.responsable
+            "responsable": self.responsable,
+            "last_update_text": self.last_update_text,
+            "delivery_date_text": self.delivery_date_text
         }
 
     def __str__(self):
         """Representación string del perfil."""
         responsable_text = f", responsable='{self.responsable}'" if self.responsable else ""
+        last_update_text = f", last_update='{self.last_update_text}'" if self.last_update_text else ""
+        delivery_text = f", delivery='{self.delivery_date_text}'" if self.delivery_date_text else ""
         return (f"SearchProfile(name='{self.name}', criteria={len(self.search_criteria)}, "
-                f"senders={len(self.sender_filters)}, type='{self.bot_type}'{responsable_text})")
+                f"senders={len(self.sender_filters)}, type='{self.bot_type}'"
+                f"{responsable_text}{last_update_text}{delivery_text})")
 
     def __repr__(self):
         """Representación técnica del perfil."""
         responsable_text = f", responsable='{self.responsable}'" if self.responsable else ""
+        last_update_text = f", last_update='{self.last_update_text}'" if self.last_update_text else ""
+        delivery_text = f", delivery='{self.delivery_date_text}'" if self.delivery_date_text else ""
         return (f"SearchProfile(id='{self.profile_id[:8]}...', name='{self.name}', "
                 f"criteria={len(self.search_criteria)}, senders={len(self.sender_filters)}, "
-                f"found={self.found_emails}{responsable_text})")
+                f"found={self.found_emails}{responsable_text}{last_update_text}{delivery_text})")

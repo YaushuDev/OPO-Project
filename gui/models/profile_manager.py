@@ -129,6 +129,21 @@ class ProfileManager:
             except ValueError:
                 profile.responsable = ""
 
+            # Normalizar campos de texto opcionales
+            try:
+                profile.last_update_text = profile._process_optional_text(
+                    getattr(profile, "last_update_text", "")
+                )
+            except ValueError:
+                profile.last_update_text = ""
+
+            try:
+                profile.delivery_date_text = profile._process_optional_text(
+                    getattr(profile, "delivery_date_text", "")
+                )
+            except ValueError:
+                profile.delivery_date_text = ""
+
             # Verificar que el tipo de bot sea válido
             if profile.bot_type not in SearchProfile.BOT_TYPES:
                 profile.bot_type = "manual"  # Corrección automática
@@ -298,7 +313,8 @@ class ProfileManager:
         return None
 
     def add_profile(self, name, search_criteria, sender_filters=None, responsable=None,
-                    bot_type=None, track_optimal=None, optimal_executions=None):
+                    bot_type=None, track_optimal=None, optimal_executions=None,
+                    last_update_text=None, delivery_date_text=None):
         """
         Añade un nuevo perfil con validaciones robustas.
 
@@ -310,6 +326,8 @@ class ProfileManager:
             bot_type (str, optional): Tipo de bot (automatico/manual/offline)
             track_optimal (bool, optional): Habilita seguimiento de ejecuciones óptimas
             optimal_executions (int, optional): Cantidad esperada de ejecuciones óptimas
+            last_update_text (str, optional): Texto manual de última actualización
+            delivery_date_text (str, optional): Texto manual de fecha de entrega
 
         Returns:
             SearchProfile: Perfil creado o None si hubo error
@@ -325,7 +343,9 @@ class ProfileManager:
                 name,
                 search_criteria,
                 sender_filters=sender_filters,
-                responsable=responsable
+                responsable=responsable,
+                last_update_text=last_update_text,
+                delivery_date_text=delivery_date_text
             )
 
             # Configurar tipo de bot si se proporciona
@@ -354,9 +374,13 @@ class ProfileManager:
                 if profile.has_sender_filters():
                     sender_info = f", {len(profile.sender_filters)} remitente(s) filtrado(s)"
                 responsable_info = f", responsable: {profile.responsable}" if profile.has_responsable() else ""
+                last_update_info = f", última actualización: {profile.last_update_text}" \
+                    if profile.has_last_update_text() else ""
+                delivery_info = f", fecha de entrega: {profile.delivery_date_text}" \
+                    if profile.has_delivery_date_text() else ""
                 self._log(
                     f"✅ Perfil creado: '{name}' con {criterios_count} criterio(s)"
-                    f"{sender_info}{responsable_info}"
+                    f"{sender_info}{responsable_info}{last_update_info}{delivery_info}"
                 )
                 return profile
             else:
@@ -389,7 +413,7 @@ class ProfileManager:
 
     def update_profile(self, profile_id, name, search_criteria, sender_filters=None,
                        responsable=None, optimal_executions=None, track_optimal=None,
-                       bot_type=None):
+                       bot_type=None, last_update_text=None, delivery_date_text=None):
         """
         Actualiza un perfil existente con validaciones.
 
@@ -402,6 +426,8 @@ class ProfileManager:
             optimal_executions (int, optional): Ejecuciones óptimas esperadas
             track_optimal (bool, optional): Habilita seguimiento de óptimos
             bot_type (str, optional): Tipo de bot
+            last_update_text (str, optional): Texto manual de última actualización
+            delivery_date_text (str, optional): Texto manual de fecha de entrega
 
         Returns:
             SearchProfile: Perfil actualizado o None si no existe o hay error
@@ -425,6 +451,8 @@ class ProfileManager:
             original_track = profile.track_optimal
             original_bot_type = profile.bot_type
             original_responsable = profile.responsable
+            original_last_update = profile.last_update_text
+            original_delivery = profile.delivery_date_text
 
             # Actualizar perfil (las validaciones están en SearchProfile.update)
             profile.update(
@@ -434,7 +462,9 @@ class ProfileManager:
                 track_optimal,
                 bot_type,
                 sender_filters,
-                responsable=responsable
+                responsable=responsable,
+                last_update_text=last_update_text,
+                delivery_date_text=delivery_date_text
             )
 
             # Validación adicional
@@ -447,6 +477,8 @@ class ProfileManager:
                 profile.track_optimal = original_track
                 profile.bot_type = original_bot_type
                 profile.responsable = original_responsable
+                profile.last_update_text = original_last_update
+                profile.delivery_date_text = original_delivery
                 self._log(f"❌ El perfil actualizado '{name}' no pasó las validaciones")
                 return None
 
@@ -457,9 +489,13 @@ class ProfileManager:
                 if profile.has_sender_filters():
                     sender_info = f", {len(profile.sender_filters)} remitente(s) filtrado(s)"
                 responsable_info = f", responsable: {profile.responsable}" if profile.has_responsable() else ""
+                last_update_info = f", última actualización: {profile.last_update_text}" \
+                    if profile.has_last_update_text() else ""
+                delivery_info = f", fecha de entrega: {profile.delivery_date_text}" \
+                    if profile.has_delivery_date_text() else ""
                 self._log(
                     f"✅ Perfil actualizado: '{name}' con {criterios_count} criterio(s)"
-                    f"{sender_info}{responsable_info}"
+                    f"{sender_info}{responsable_info}{last_update_info}{delivery_info}"
                 )
                 return profile
             else:
@@ -471,6 +507,8 @@ class ProfileManager:
                 profile.track_optimal = original_track
                 profile.bot_type = original_bot_type
                 profile.responsable = original_responsable
+                profile.last_update_text = original_last_update
+                profile.delivery_date_text = original_delivery
                 self._log(f"❌ Error al guardar cambios del perfil '{name}'")
                 return None
 
