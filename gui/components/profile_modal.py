@@ -84,7 +84,7 @@ class ProfileModal:
         # Crear ventana modal
         self.modal = tk.Toplevel(parent)
         self.modal.title("Editar Perfil" if self.edit_mode else "Nuevo Perfil")
-        self.modal.geometry("520x960")
+        self.modal.geometry("960x520")
         self.modal.resizable(False, False)
         self.modal.transient(parent)
         self.modal.grab_set()
@@ -100,6 +100,8 @@ class ProfileModal:
         # Frame principal
         main_frame = ttk.Frame(self.modal, padding="25 25 25 25")
         main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
 
         # Título
         title_label = ttk.Label(
@@ -107,162 +109,195 @@ class ProfileModal:
             text="📋 " + ("Editar Perfil de Búsqueda" if self.edit_mode else "Nuevo Perfil de Búsqueda"),
             font=("Arial", 14, "bold")
         )
-        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 25))
+        title_label.grid(row=0, column=0, sticky="w", pady=(0, 20))
 
-        # Nombre del perfil
+        # Contenedor principal con diseño horizontal
+        content_frame = ttk.Frame(main_frame)
+        content_frame.grid(row=1, column=0, sticky="nsew")
+        content_frame.columnconfigure(0, weight=1)
+        content_frame.columnconfigure(1, weight=1)
+        content_frame.rowconfigure(0, weight=1)
+
+        # Columna izquierda: información del perfil
+        left_column = ttk.Frame(content_frame)
+        left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 20))
+        left_column.columnconfigure(0, weight=1)
+
+        info_frame = ttk.LabelFrame(left_column, text="Información del Perfil", padding="15 10 15 15")
+        info_frame.grid(row=0, column=0, sticky="nsew")
+        info_frame.columnconfigure(0, weight=0)
+        info_frame.columnconfigure(1, weight=1)
+
         ttk.Label(
-            main_frame,
+            info_frame,
             text="Nombre del Perfil:",
             font=("Arial", 10, "bold")
-        ).grid(row=1, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12), padx=(0, 10))
 
         name_entry = ttk.Entry(
-            main_frame,
+            info_frame,
             textvariable=self.profile_name,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        name_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        name_entry.grid(row=0, column=1, sticky="ew", pady=(0, 12))
         name_entry.focus()
 
-        # Responsable del perfil
         ttk.Label(
-            main_frame,
+            info_frame,
             text="Responsable (opcional):",
             font=("Arial", 10)
-        ).grid(row=3, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=1, column=0, sticky="w", pady=(0, 12), padx=(0, 10))
 
         responsable_entry = ttk.Entry(
-            main_frame,
+            info_frame,
             textvariable=self.responsable,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        responsable_entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        responsable_entry.grid(row=1, column=1, sticky="ew", pady=(0, 12))
 
-        # Campos adicionales: última actualización y fecha de entrega
         ttk.Label(
-            main_frame,
+            info_frame,
             text="Última Actualización (opcional):",
             font=("Arial", 10)
-        ).grid(row=5, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=2, column=0, sticky="w", pady=(0, 12), padx=(0, 10))
 
         last_update_entry = ttk.Entry(
-            main_frame,
+            info_frame,
             textvariable=self.last_update_text,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        last_update_entry.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        last_update_entry.grid(row=2, column=1, sticky="ew", pady=(0, 12))
 
         ttk.Label(
-            main_frame,
+            info_frame,
             text="Fecha de entrega (opcional):",
             font=("Arial", 10)
-        ).grid(row=7, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=3, column=0, sticky="w", pady=(0, 0), padx=(0, 10))
 
         delivery_entry = ttk.Entry(
-            main_frame,
+            info_frame,
             textvariable=self.delivery_date_text,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        delivery_entry.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        delivery_entry.grid(row=3, column=1, sticky="ew", pady=(0, 0))
 
-        # Sección de criterios de búsqueda
-        criteria_label = ttk.Label(
-            main_frame,
-            text="Criterios de Búsqueda (llenar al menos uno):",
-            font=("Arial", 11, "bold"),
-            foreground="navy"
+        left_column.rowconfigure(1, weight=1)
+
+        # Columna derecha: criterios, filtros y opciones
+        right_column = ttk.Frame(content_frame)
+        right_column.grid(row=0, column=1, sticky="nsew")
+        right_column.columnconfigure(0, weight=1)
+
+        criteria_frame = ttk.LabelFrame(
+            right_column,
+            text="Criterios de Búsqueda",
+            padding="15 10 15 15"
         )
-        criteria_label.grid(row=9, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        criteria_frame.grid(row=0, column=0, sticky="nsew")
+        criteria_frame.columnconfigure(0, weight=0)
+        criteria_frame.columnconfigure(1, weight=1)
 
-        # Criterio 1 (obligatorio)
         ttk.Label(
-            main_frame,
+            criteria_frame,
+            text="Completa al menos un criterio",
+            font=("Arial", 9),
+            foreground="navy"
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        ttk.Label(
+            criteria_frame,
             text="Criterio 1 (principal):",
             font=("Arial", 10, "bold")
-        ).grid(row=10, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=1, column=0, sticky="w", pady=(0, 10), padx=(0, 10))
 
         criteria_1_entry = ttk.Entry(
-            main_frame,
+            criteria_frame,
             textvariable=self.search_criteria_1,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        criteria_1_entry.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        criteria_1_entry.grid(row=1, column=1, sticky="ew", pady=(0, 10))
 
-        # Criterio 2 (opcional)
         ttk.Label(
-            main_frame,
+            criteria_frame,
             text="Criterio 2 (opcional):",
             font=("Arial", 10)
-        ).grid(row=12, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=2, column=0, sticky="w", pady=(0, 10), padx=(0, 10))
 
         criteria_2_entry = ttk.Entry(
-            main_frame,
+            criteria_frame,
             textvariable=self.search_criteria_2,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        criteria_2_entry.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        criteria_2_entry.grid(row=2, column=1, sticky="ew", pady=(0, 10))
 
-        # Criterio 3 (opcional)
         ttk.Label(
-            main_frame,
+            criteria_frame,
             text="Criterio 3 (opcional):",
             font=("Arial", 10)
-        ).grid(row=14, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=3, column=0, sticky="w", pady=(0, 0), padx=(0, 10))
 
         criteria_3_entry = ttk.Entry(
-            main_frame,
+            criteria_frame,
             textvariable=self.search_criteria_3,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        criteria_3_entry.grid(row=15, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        criteria_3_entry.grid(row=3, column=1, sticky="ew")
 
-        # Filtro de remitente
-        sender_label = ttk.Label(
-            main_frame,
-            text="Filtrar por Remitente (opcional):",
-            font=("Arial", 10, "bold")
+        filter_frame = ttk.LabelFrame(
+            right_column,
+            text="Filtros adicionales",
+            padding="15 10 15 15"
         )
-        sender_label.grid(row=16, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        filter_frame.grid(row=1, column=0, sticky="ew", pady=(15, 0))
+        filter_frame.columnconfigure(0, weight=0)
+        filter_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            filter_frame,
+            text="Remitentes (opcional):",
+            font=("Arial", 10, "bold")
+        ).grid(row=0, column=0, sticky="w", padx=(0, 10))
 
         sender_entry = ttk.Entry(
-            main_frame,
+            filter_frame,
             textvariable=self.sender_filter,
-            width=50,
+            width=40,
             font=("Arial", 10)
         )
-        sender_entry.grid(row=17, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+        sender_entry.grid(row=0, column=1, sticky="ew")
 
         sender_hint = ttk.Label(
-            main_frame,
+            filter_frame,
             text="Puedes ingresar varios remitentes separados por coma.",
             font=("Arial", 9),
             foreground="gray"
         )
-        sender_hint.grid(row=18, column=0, columnspan=2, sticky="w", pady=(0, 15))
+        sender_hint.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-        # Separador visual
-        separator1 = ttk.Separator(main_frame, orient='horizontal')
-        separator1.grid(row=19, column=0, columnspan=2, sticky="ew", pady=(0, 15))
-
-        # Sección: Tipo de Bot
-        bot_type_label = ttk.Label(
-            main_frame,
-            text="Tipo de Bot:",
-            font=("Arial", 11, "bold"),
-            foreground="purple"
+        bot_frame = ttk.LabelFrame(
+            right_column,
+            text="Tipo de Bot",
+            padding="15 10 15 15"
         )
-        bot_type_label.grid(row=20, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        bot_frame.grid(row=2, column=0, sticky="ew", pady=(15, 0))
+        bot_frame.columnconfigure(0, weight=1)
 
-        # Frame para radio buttons del tipo de bot
-        bot_type_frame = ttk.Frame(main_frame)
-        bot_type_frame.grid(row=21, column=0, columnspan=2, sticky="ew", pady=(0, 15))
+        ttk.Label(
+            bot_frame,
+            text="Selecciona el modo de ejecución:",
+            font=("Arial", 10),
+            foreground="purple"
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        bot_type_frame = ttk.Frame(bot_frame)
+        bot_type_frame.grid(row=1, column=0, sticky="ew")
 
         for idx in range(len(SearchProfile.BOT_TYPES)):
             bot_type_frame.columnconfigure(idx, weight=1)
@@ -277,46 +312,46 @@ class ProfileModal:
             padx = (0, 20) if idx < len(SearchProfile.BOT_TYPES) - 1 else (0, 0)
             radio.grid(row=0, column=idx, sticky="w", padx=padx)
 
-        # Separador visual
-        separator2 = ttk.Separator(main_frame, orient='horizontal')
-        separator2.grid(row=22, column=0, columnspan=2, sticky="ew", pady=(0, 15))
-
-        # Sección de seguimiento óptimo
-        optimal_label = ttk.Label(
-            main_frame,
-            text="Seguimiento de Ejecuciones Óptimas:",
-            font=("Arial", 11, "bold"),
-            foreground="darkgreen"
+        optimal_frame = ttk.LabelFrame(
+            right_column,
+            text="Seguimiento de ejecuciones óptimas",
+            padding="15 10 15 15"
         )
-        optimal_label.grid(row=23, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        optimal_frame.grid(row=3, column=0, sticky="ew", pady=(15, 0))
+        optimal_frame.columnconfigure(0, weight=0)
+        optimal_frame.columnconfigure(1, weight=1)
 
-        # Checkbox para habilitar seguimiento óptimo
         self.track_checkbox = ttk.Checkbutton(
-            main_frame,
-            text="Habilitar seguimiento de ejecuciones óptimas",
+            optimal_frame,
+            text="Habilitar seguimiento",
             variable=self.track_optimal,
             command=self._toggle_optimal_tracking
         )
-        self.track_checkbox.grid(row=24, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        self.track_checkbox.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
-        # Campo para cantidad de ejecuciones óptimas
         ttk.Label(
-            main_frame,
-            text="Cantidad de Ejecuciones Óptimas:",
+            optimal_frame,
+            text="Cantidad de ejecuciones óptimas:",
             font=("Arial", 10)
-        ).grid(row=25, column=0, sticky="w", pady=(0, 5))
+        ).grid(row=1, column=0, sticky="w", padx=(0, 10))
 
         self.optimal_entry = ttk.Entry(
-            main_frame,
+            optimal_frame,
             textvariable=self.optimal_executions,
-            width=50,
+            width=20,
             font=("Arial", 10)
         )
-        self.optimal_entry.grid(row=26, column=0, columnspan=2, sticky="ew", pady=(0, 20))
+        self.optimal_entry.grid(row=1, column=1, sticky="ew")
+
+        # Alinear peso de filas en la columna derecha
+        right_column.rowconfigure(0, weight=1)
+        right_column.rowconfigure(1, weight=0)
+        right_column.rowconfigure(2, weight=0)
+        right_column.rowconfigure(3, weight=0)
 
         # Botones
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=27, column=0, columnspan=2, sticky="ew")
+        button_frame.grid(row=2, column=0, sticky="ew", pady=(25, 0))
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
 
@@ -333,9 +368,6 @@ class ProfileModal:
             command=self.modal.destroy
         )
         cancel_btn.grid(row=0, column=1, padx=(5, 0), sticky="w")
-
-        # Configurar columnas expandibles
-        main_frame.columnconfigure(0, weight=1)
 
         # Aplicar estado inicial del seguimiento óptimo
         self._toggle_optimal_tracking()
