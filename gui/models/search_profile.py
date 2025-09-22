@@ -20,8 +20,9 @@ class SearchProfile:
     MIN_CRITERIA_LENGTH = 2
     MAX_CRITERIA_LENGTH = 100
     BOT_TYPES = ["automatico", "manual"]
+    RESPONSABLE_MAX_LENGTH = 100
 
-    def __init__(self, name, search_criteria, sender_filters=None, profile_id=None):
+    def __init__(self, name, search_criteria, sender_filters=None, responsable=None, profile_id=None):
         """
         Inicializa un perfil de búsqueda con validaciones mejoradas.
 
@@ -29,6 +30,7 @@ class SearchProfile:
             name (str): Nombre del perfil
             search_criteria (str or list): Criterio(s) de búsqueda. Puede ser string único o lista de hasta 3
             sender_filters (str or list, optional): Remitentes sugeridos para filtrar resultados
+            responsable (str, optional): Responsable asociado al perfil
             profile_id (str, optional): ID único del perfil. Si no se proporciona, se genera uno.
         """
         self.profile_id = profile_id if profile_id else str(uuid.uuid4())
@@ -39,6 +41,9 @@ class SearchProfile:
 
         # Filtros opcionales por remitente
         self.sender_filters = self._process_sender_filters(sender_filters)
+
+        # Responsable opcional del perfil
+        self.responsable = self._process_responsable(responsable)
 
         # Campos originales
         self.found_emails = 0  # Cantidad de ejecuciones encontradas
@@ -165,6 +170,21 @@ class SearchProfile:
 
         return processed_filters
 
+    def _process_responsable(self, responsable):
+        """Normaliza el responsable asociado al perfil."""
+        if responsable is None:
+            return ""
+
+        if not isinstance(responsable, str):
+            raise ValueError("El responsable debe ser una cadena de texto")
+
+        cleaned = ' '.join(responsable.split()).strip()
+
+        if len(cleaned) > self.RESPONSABLE_MAX_LENGTH:
+            cleaned = cleaned[:self.RESPONSABLE_MAX_LENGTH]
+
+        return cleaned
+
     def _clean_criteria(self, criterio):
         """
         Limpia un criterio de búsqueda.
@@ -220,6 +240,7 @@ class SearchProfile:
             "name": self.name,
             "search_criteria": self.search_criteria,
             "sender_filters": self.sender_filters,
+            "responsable": self.responsable,
             "found_emails": self.found_emails,
             "last_search": self.last_search.isoformat() if self.last_search else None,
             # Campos de seguimiento óptimo
@@ -265,6 +286,7 @@ class SearchProfile:
                 name=data.get("name", "Perfil sin nombre"),
                 search_criteria=search_criteria,
                 sender_filters=sender_filters,
+                responsable=data.get("responsable"),
                 profile_id=data.get("profile_id")
             )
 
@@ -309,7 +331,7 @@ class SearchProfile:
             raise ValueError(f"Error al crear perfil desde datos: {e}")
 
     def update(self, name, search_criteria, optimal_executions=None, track_optimal=None,
-               bot_type=None, sender_filters=None):
+               bot_type=None, sender_filters=None, responsable=None):
         """
         Actualiza los datos del perfil con validaciones mejoradas.
 
@@ -320,6 +342,7 @@ class SearchProfile:
             track_optimal (bool, optional): Habilitar seguimiento óptimo
             bot_type (str, optional): Tipo de bot ("automatico" o "manual")
             sender_filters (str or list, optional): Remitentes filtrados
+            responsable (str, optional): Responsable del perfil
         """
         # Actualizar nombre con validación
         self.name = self._validate_name(name)
@@ -329,6 +352,9 @@ class SearchProfile:
 
         if sender_filters is not None:
             self.sender_filters = self._process_sender_filters(sender_filters)
+
+        if responsable is not None:
+            self.responsable = self._process_responsable(responsable)
 
         # Actualizar campos de seguimiento óptimo si se proporcionan
         if optimal_executions is not None:
@@ -361,6 +387,14 @@ class SearchProfile:
         preview = ", ".join(self.sender_filters[:2])
         suffix = "..." if len(self.sender_filters) > 2 else ""
         return f"✉️ {len(self.sender_filters)} remitentes: {preview}{suffix}"
+
+    def has_responsable(self):
+        """Indica si el perfil tiene un responsable asignado."""
+        return bool(self.responsable)
+
+    def get_responsable_display(self):
+        """Retorna una representación legible del responsable."""
+        return self.responsable if self.responsable else "➖ Sin responsable"
 
     def update_search_results(self, found_emails):
         """
@@ -562,16 +596,19 @@ class SearchProfile:
             "age_days": self.get_age_days(),
             "has_optimal_tracking": self.track_optimal,
             "last_search_days_ago": (datetime.now() - self.last_search).days if self.last_search else None,
-            "sender_filters": self.sender_filters.copy()
+            "sender_filters": self.sender_filters.copy(),
+            "responsable": self.responsable
         }
 
     def __str__(self):
         """Representación string del perfil."""
+        responsable_text = f", responsable='{self.responsable}'" if self.responsable else ""
         return (f"SearchProfile(name='{self.name}', criteria={len(self.search_criteria)}, "
-                f"senders={len(self.sender_filters)}, type='{self.bot_type}')")
+                f"senders={len(self.sender_filters)}, type='{self.bot_type}'{responsable_text})")
 
     def __repr__(self):
         """Representación técnica del perfil."""
+        responsable_text = f", responsable='{self.responsable}'" if self.responsable else ""
         return (f"SearchProfile(id='{self.profile_id[:8]}...', name='{self.name}', "
                 f"criteria={len(self.search_criteria)}, senders={len(self.sender_filters)}, "
-                f"found={self.found_emails})")
+                f"found={self.found_emails}{responsable_text})")

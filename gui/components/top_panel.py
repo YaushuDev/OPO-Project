@@ -152,13 +152,24 @@ class TopPanel:
         # Crear Treeview para la tabla de perfiles
         self.profiles_tree = ttk.Treeview(
             self.grid_frame,
-            columns=("name", "bot_type", "criteria", "executions", "optimal", "success", "last_search", "actions"),
+            columns=(
+                "name",
+                "responsable",
+                "bot_type",
+                "criteria",
+                "executions",
+                "optimal",
+                "success",
+                "last_search",
+                "actions"
+            ),
             show="headings",
             selectmode="browse"
         )
 
         # Definir columnas
         self.profiles_tree.heading("name", text="Nombre del Perfil")
+        self.profiles_tree.heading("responsable", text="Responsable")
         self.profiles_tree.heading("bot_type", text="Tipo de Bot")
         self.profiles_tree.heading("criteria", text="Criterios de Búsqueda")
         self.profiles_tree.heading("executions", text="Cantidad de ejecuciones")
@@ -169,6 +180,7 @@ class TopPanel:
 
         # Configurar ancho de columnas
         self.profiles_tree.column("name", width=110, minwidth=90)
+        self.profiles_tree.column("responsable", width=120, minwidth=100)
         self.profiles_tree.column("bot_type", width=90, minwidth=80, anchor="center")
         self.profiles_tree.column("criteria", width=200, minwidth=180)
         self.profiles_tree.column("executions", width=100, minwidth=80, anchor="center")
@@ -237,10 +249,12 @@ class TopPanel:
                 optimal_display = profile.get_optimal_display()
                 success_display = profile.get_success_display()
                 bot_type_display = profile.get_bot_type_display()
+                responsable_display = profile.responsable if profile.responsable else "—"
 
                 # Añadir fila a la tabla
                 item_id = self.profiles_tree.insert("", "end", text=profile.profile_id, values=(
                     profile.name,
+                    responsable_display,
                     bot_type_display,
                     criteria_display,
                     profile.found_emails,
@@ -273,6 +287,11 @@ class TopPanel:
                 f"{automatic_bots} automáticos, {manual_bots} manuales)"
             )
 
+            if summary.get('profiles_with_responsable', 0) > 0:
+                self.bottom_right_panel.add_log_entry(
+                    f"Responsables asignados: {summary['profiles_with_responsable']} perfiles"
+                )
+
             if summary['profiles_with_tracking'] > 0:
                 self.bottom_right_panel.add_log_entry(
                     f"Seguimiento óptimo: {summary['profiles_with_tracking']} perfiles "
@@ -291,7 +310,7 @@ class TopPanel:
                 return
 
             # Si es la columna de acciones
-            if column == "#8":
+            if column == "#9":
                 profile_id = self.profiles_tree.item(item, "tags")[0]
                 profile = self.profile_manager.get_profile_by_id(profile_id)
 
@@ -373,8 +392,10 @@ class TopPanel:
             sender_text = ""
             if profile.has_sender_filters():
                 sender_text = f", remitentes: {len(profile.sender_filters)}"
+            responsable_text = f", responsable: {profile.responsable}" if profile.has_responsable() else ""
             self.bottom_right_panel.add_log_entry(
-                f"Editando perfil: {profile.name} [{bot_type_text}] ({criterios_count} criterios{optimal_text}{sender_text})"
+                f"Editando perfil: {profile.name} [{bot_type_text}] "
+                f"({criterios_count} criterios{optimal_text}{sender_text}{responsable_text})"
             )
 
         ProfileModal(
@@ -397,21 +418,24 @@ class TopPanel:
         sender_text = ""
         if profile.has_sender_filters():
             sender_text = f"\nRemitentes filtrados: {', '.join(profile.sender_filters)}"
+        responsable_text = ""
+        if profile.has_responsable():
+            responsable_text = f"\nResponsable: {profile.responsable}"
 
         confirm = messagebox.askyesno(
             "Confirmar eliminación",
             f"¿Estás seguro de eliminar el perfil '{profile.name}'?\n"
             f"Tipo de bot: {bot_type_text}\n"
-            f"Se perderán {criterios_count} {criterios_text} de búsqueda.{optimal_text}{sender_text}",
+            f"Se perderán {criterios_count} {criterios_text} de búsqueda.{optimal_text}{sender_text}{responsable_text}",
             icon=messagebox.WARNING
         )
 
         if confirm:
             if self.profile_manager.delete_profile(profile.profile_id):
                 if self.bottom_right_panel:
-                    self.bottom_right_panel.add_log_entry(
-                        f"Perfil eliminado: {profile.name} [{bot_type_text}] ({criterios_count} criterios)"
-                    )
+                self.bottom_right_panel.add_log_entry(
+                    f"Perfil eliminado: {profile.name} [{bot_type_text}] ({criterios_count} criterios)"
+                )
                 self._load_profiles()
             else:
                 messagebox.showerror("Error", "No se pudo eliminar el perfil")
