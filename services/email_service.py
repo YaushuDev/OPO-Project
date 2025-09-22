@@ -16,6 +16,13 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 
+from services.email_config import (
+    FREQUENCY_DISPLAY_NAMES,
+    FREQUENCY_LABELS,
+    get_frequency_settings,
+    normalize_recipients_config,
+)
+
 
 class EmailService:
     """Servicio para envío de correos electrónicos con soporte para tipos de reportes."""
@@ -39,13 +46,15 @@ class EmailService:
         try:
             # Cargar configuraciones
             smtp_config = self._load_smtp_config()
-            recipients_config = self._load_recipients_config()
+            recipients_config_raw = self._load_recipients_config()
 
             if not smtp_config:
                 raise Exception("No se encontró configuración SMTP. Configure SMTP primero.")
 
-            if not recipients_config:
+            if recipients_config_raw is None:
                 raise Exception("No se encontró configuración de destinatarios. Configure destinatarios primero.")
+
+            recipients_config = normalize_recipients_config(recipients_config_raw)
 
             # Crear mensaje
             msg = self._create_message(smtp_config, recipients_config, report_path, report_type)
@@ -105,28 +114,24 @@ class EmailService:
         # Crear mensaje
         msg = MIMEMultipart()
 
+        frequency = report_type if report_type in FREQUENCY_LABELS else "daily"
+        settings = get_frequency_settings(recipients_config, frequency)
+
+        recipient_email = settings.get('recipient', '')
+        if not recipient_email:
+            raise Exception(f"No hay destinatario configurado para el {FREQUENCY_DISPLAY_NAMES[frequency]}.")
+
         # Configurar destinatarios
         msg['From'] = smtp_config['username']
-        msg['To'] = recipients_config['recipient']
+        msg['To'] = recipient_email
 
         # Agregar CC si existe
-        cc_emails = recipients_config.get('cc', '').strip()
+        cc_emails = settings.get('cc', '').strip()
         if cc_emails:
             msg['Cc'] = cc_emails
 
-        # Seleccionar la plantilla de asunto adecuada según el tipo de reporte
-        if report_type == "weekly":
-            subject_template = recipients_config.get('subject_template_weekly',
-                                                   "Reporte Semanal de Búsqueda de Correos - {date}")
-            report_type_text = "semanal"
-        elif report_type == "monthly":
-            subject_template = recipients_config.get('subject_template_monthly',
-                                                   "Reporte Mensual de Búsqueda de Correos - {date}")
-            report_type_text = "mensual"
-        else:  # default: daily
-            subject_template = recipients_config.get('subject_template_daily',
-                                                   "Reporte Diario de Búsqueda de Correos - {date}")
-            report_type_text = "diario"
+        subject_template = settings.get('subject_template')
+        report_type_text = FREQUENCY_LABELS.get(frequency, 'diario')
 
         # Configurar asunto
         current_date = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -265,13 +270,23 @@ Sistema Automatizado de Reportes
         """
         try:
             smtp_config = self._load_smtp_config()
-            recipients_config = self._load_recipients_config()
+            recipients_config_raw = self._load_recipients_config()
 
             if not smtp_config:
                 return False, "No se encontró configuración SMTP"
 
-            if not recipients_config:
+            if recipients_config_raw is None:
                 return False, "No se encontró configuración de destinatarios"
+
+            normalized_recipients = normalize_recipients_config(recipients_config_raw)
+            missing = [
+                name
+                for key, name in FREQUENCY_DISPLAY_NAMES.items()
+                if not normalized_recipients.get(key, {}).get('recipient')
+            ]
+
+            if missing:
+                return False, f"Falta destinatario para: {', '.join(missing)}"
 
             # Intentar conexión SMTP básica
             context = ssl.create_default_context()
